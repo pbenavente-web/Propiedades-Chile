@@ -1,0 +1,14 @@
+{
+  "name": "propiedad-compra-scraper",
+  "version": "2.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Recolector de departamentos de Portal Inmobiliario (MercadoLibre Chile) vía Playwright, para el dashboard de compra.",
+  "scripts": {
+    "start": "node fetch.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

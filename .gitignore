@@ -1,0 +1,9 @@
+# Dependencias del scraper (se reinstalan con `npm install`)
+scraper/node_modules/
+
+# Respaldos y volcados de diagnóstico del scraper
+data/*.bak
+scraper/diag/
+
+# Basura del sistema
+.DS_Store

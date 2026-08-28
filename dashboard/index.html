@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Buscador de Departamentos · Vitacura · Las Condes · Lo Barnechea</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1f232c; --line: #2a2f3a;
+    --txt: #e7eaf0; --muted: #9aa3b2; --accent: #4f8cff; --accent2: #22c55e;
+    --chip: #232838; --danger: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--txt); font-size: 14px;
+  }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    background: linear-gradient(180deg, #12151c, #0f1115);
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 12.5px; }
+  header .banner-muestra {
+    margin-left: auto; background: #3a2a12; color: #f0b968; border: 1px solid #5a4520;
+    padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+  }
+  .layout { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 56px); }
+  /* ---- panel filtros ---- */
+  aside {
+    border-right: 1px solid var(--line); overflow-y: auto; padding: 16px;
+    background: var(--panel);
+  }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .fgroup { margin-bottom: 18px; }
+  .fgroup label.title { display: block; font-weight: 600; margin-bottom: 7px; font-size: 13px; }
+  .check { display: flex; align-items: center; gap: 8px; margin: 5px 0; cursor: pointer; }
+  .check input { accent-color: var(--accent); }
+  .range { display: flex; gap: 8px; align-items: center; }
+  .range input[type="number"] {
+    width: 100%; background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 6px; padding: 7px 8px; font-size: 13px;
+  }
+  .range span { color: var(--muted); }
+  input[type="search"] {
+    width: 100%; background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 6px; padding: 8px 9px; font-size: 13px;
+  }
+  input[type="search"]:focus { outline: none; border-color: var(--accent); }
+  .fgroup .hint { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); }
+  mark { background: #fde047; color: #000; border-radius: 2px; padding: 0 1px; }
+  .frag { margin-top: 4px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+  select {
+    width: 100%; background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 6px; padding: 8px; font-size: 13px;
+  }
+  button.reset {
+    width: 100%; margin-top: 4px; background: var(--panel2); color: var(--txt);
+    border: 1px solid var(--line); border-radius: 6px; padding: 9px; cursor: pointer; font-size: 13px;
+  }
+  button.reset:hover { border-color: var(--accent); }
+  /* ---- contenido ---- */
+  main { display: flex; flex-direction: column; overflow: hidden; }
+  .summary {
+    display: flex; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line);
+    flex-wrap: wrap; background: var(--panel);
+  }
+  .stat {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 14px; min-width: 110px;
+  }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .stat .v { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  #map { height: 42%; min-height: 260px; border-bottom: 1px solid var(--line); }
+  .tablewrap { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    position: sticky; top: 0; background: var(--panel2); color: var(--muted);
+    text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line);
+    cursor: pointer; white-space: nowrap; user-select: none;
+  }
+  thead th:hover { color: var(--txt); }
+  tbody td { padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--panel2); }
+  tbody tr.active { background: #1c2942; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .comuna-chip {
+    background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: 2px 9px; font-size: 11.5px;
+  }
+  .comuna-cell { white-space: nowrap; }
+  /* barrio editable debajo de la comuna */
+  .barrio-chip {
+    display: inline-block; margin-top: 4px; font-size: 11px; color: var(--muted);
+    cursor: pointer; border: 1px dashed transparent; border-radius: 6px; padding: 1px 5px;
+    transition: color .12s, border-color .12s, background .12s;
+  }
+  .barrio-chip:hover { color: var(--txt); border-color: var(--line); background: var(--panel2); }
+  .barrio-chip.edited { color: var(--accent); border-color: var(--accent); border-style: solid; }
+  .barrio-edit {
+    margin-top: 4px; font-size: 11px; max-width: 150px;
+    background: var(--panel2); color: var(--txt); border: 1px solid var(--accent);
+    border-radius: 6px; padding: 2px 4px;
+  }
+  a.link { color: var(--accent); text-decoration: none; }
+  a.link:hover { text-decoration: underline; }
+  .destacar { color: var(--muted); font-size: 11.5px; white-space: normal; max-width: 260px; }
+  .thumb {
+    width: 68px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--panel2); display: block;
+  }
+  .thumb-ph { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 16px; }
+  .tag {
+    display: inline-block; background: #14321f; color: #6ee7a0; border: 1px solid #1f5636;
+    border-radius: 999px; padding: 1px 8px; font-size: 11px; margin: 1px 2px 1px 0;
+  }
+  .tag.j { background: #1a3320; color: #86efac; border-color: #235c33; }
+  .tag.d { background: #2a2340; color: #c4b5fd; border-color: #493b6e; }
+  /* favorito */
+  .fav-btn {
+    background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1;
+    padding: 2px 4px; filter: grayscale(1) opacity(.45); transition: filter .12s, transform .1s;
+  }
+  .fav-btn:hover { filter: grayscale(.3) opacity(.9); transform: scale(1.15); }
+  .fav-btn.on { filter: none; }
+  /* rechazado */
+  .rej-btn {
+    background: none; border: none; cursor: pointer; font-size: 16px; line-height: 1;
+    padding: 2px 4px; filter: grayscale(1) opacity(.4); transition: filter .12s, transform .1s;
+  }
+  .rej-btn:hover { filter: grayscale(.2) opacity(.9); transform: scale(1.15); }
+  .rej-btn.on { filter: none; }
+  tr.rejected { opacity: .5; }
+  /* editar características */
+  .tag.edited { border-style: dashed; }
+  /* tags editables tipo toggle: clic para activar/desactivar la característica */
+  .tag.edit {
+    cursor: pointer; user-select: none; transition: opacity .12s, filter .12s;
+  }
+  .tag.edit:hover { filter: brightness(1.25); }
+  .tag.edit.off {
+    background: transparent; color: var(--muted); border-color: var(--line);
+    border-style: dashed; opacity: .7;
+  }
+  .tag.edit.off:hover { opacity: 1; color: var(--txt); }
+  /* toggle favoritos en filtros */
+  .fav-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .fav-toggle .cnt { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .seg label {
+    flex: 1; text-align: center; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 4px; font-size: 12px; cursor: pointer; user-select: none;
+  }
+  .seg input { display: none; }
+  .seg input:checked + span { color: var(--accent); font-weight: 700; }
+  .seg label:has(input:checked) { border-color: var(--accent); background: #16233c; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  .leaflet-popup-content { font-size: 13px; line-height: 1.5; }
+  .leaflet-popup-content b { color: #111; }
+  @media (max-width: 820px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    aside { border-right: none; border-bottom: 1px solid var(--line); }
+    #map { height: 320px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏢 Buscador de Departamentos</h1>
+  <span class="sub">Compra · Usados · Vitacura · Las Condes · Lo Barnechea · <em>toca una característica para activar/desactivarla</em></span>
+  <span id="banner" class="banner-muestra" style="display:none">Datos de MUESTRA</span>
+</header>
+
+<div class="layout">
+  <aside>
+    <h2>Filtros</h2>
+
+    <div class="fgroup">
+      <label class="title">Buscar palabra</label>
+      <input type="search" id="buscar" placeholder="ej: piscina, cordillera, remodelado…" />
+      <span class="hint">Busca en el título y la descripción de cada propiedad.</span>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Comuna</label>
+      <div id="f-comunas"></div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Barrio / sector</label>
+      <select id="barrio">
+        <option value="">Todos los sectores</option>
+      </select>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Precio (UF)</label>
+      <div class="range">
+        <input type="number" id="precio-min" placeholder="mín" />
+        <span>–</span>
+        <input type="number" id="precio-max" placeholder="máx" />
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Mínimos</label>
+      <div class="range"><span style="width:90px">Dormitorios</span><input type="number" id="min-dorm" min="0" value="2" /></div>
+      <div class="range" style="margin-top:6px"><span style="width:90px">Baños</span><input type="number" id="min-banos" min="0" value="2" /></div>
+      <div class="range" style="margin-top:6px"><span style="width:90px">Estacion.</span><input type="number" id="min-estac" min="0" value="1" /></div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Antigüedad (años)</label>
+      <div class="range">
+        <input type="number" id="ant-min" placeholder="mín" />
+        <span>–</span>
+        <input type="number" id="ant-max" placeholder="máx" />
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Superficie total (m²)</label>
+      <div class="range">
+        <input type="number" id="stot-min" placeholder="mín" />
+        <span>–</span>
+        <input type="number" id="stot-max" placeholder="máx" />
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Superficie útil (m²)</label>
+      <div class="range">
+        <input type="number" id="sutil-min" placeholder="mín" />
+        <span>–</span>
+        <input type="number" id="sutil-max" placeholder="máx" />
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">UF / m² útil</label>
+      <div class="range">
+        <input type="number" id="ufm2-min" placeholder="mín" />
+        <span>–</span>
+        <input type="number" id="ufm2-max" placeholder="máx" />
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Gastos comunes (CLP)</label>
+      <div class="range">
+        <input type="number" id="gc-min" placeholder="mín" />
+        <span>–</span>
+        <input type="number" id="gc-max" placeholder="máx" />
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Piso</label>
+      <div class="range">
+        <input type="number" id="piso-min" placeholder="mín" />
+        <span>–</span>
+        <input type="number" id="piso-max" placeholder="máx" />
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Orientación</label>
+      <select id="orientacion">
+        <option value="">Cualquiera</option>
+      </select>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Características</label>
+      <div class="seg">
+        <label><input type="checkbox" id="chk-jardin" /><span>🌳 Jardín</span></label>
+        <label><input type="checkbox" id="chk-duplex" /><span>🏠 Dúplex</span></label>
+        <label><input type="checkbox" id="chk-bodega" /><span>📦 Bodega</span></label>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Favoritos</label>
+      <label class="fav-toggle check">
+        <input type="checkbox" id="chk-favoritos" />
+        <span>⭐ Ver solo favoritos</span>
+        <span class="cnt" id="fav-count">0</span>
+      </label>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Rechazados</label>
+      <label class="fav-toggle check">
+        <input type="checkbox" id="chk-ver-rechazados" />
+        <span>❌ Mostrar rechazados</span>
+        <span class="cnt" id="rej-count">0</span>
+      </label>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Ordenar por</label>
+      <select id="orden">
+        <option value="precio_uf-asc">Precio UF ↑</option>
+        <option value="precio_uf-desc">Precio UF ↓</option>
+        <option value="uf_m2_util-asc">UF/m² ↑ (más conveniente)</option>
+        <option value="uf_m2_util-desc">UF/m² ↓</option>
+        <option value="superficie_util-desc">Superficie útil ↓</option>
+        <option value="antiguedad-asc">Más nuevo</option>
+      </select>
+    </div>
+
+    <button class="reset" id="reset">Limpiar filtros</button>
+  </aside>
+
+  <main>
+    <div class="summary" id="summary"></div>
+    <div id="map"></div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>⭐</th>
+            <th>Foto</th>
+            <th>Título / Características</th>
+            <th data-sort="comuna">Comuna</th>
+            <th data-sort="superficie_util" class="num">Útil m²</th>
+            <th data-sort="superficie_total" class="num">Total m²</th>
+            <th data-sort="precio_uf" class="num">Precio UF</th>
+            <th data-sort="uf_m2_util" class="num">UF/m²</th>
+            <th data-sort="dormitorios" class="num">Dorm</th>
+            <th data-sort="banos" class="num">Baño</th>
+            <th data-sort="estacionamientos" class="num">Estac</th>
+            <th data-sort="piso" class="num">Piso</th>
+            <th data-sort="orientacion">Orient.</th>
+            <th data-sort="gastos_comunes" class="num">GC $</th>
+            <th data-sort="antiguedad" class="num">Años</th>
+            <th>Publicante</th>
+            <th>Link</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div id="empty" class="empty" style="display:none">Sin resultados con estos filtros.</div>
+    </div>
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const COMUNA_COLOR = { "Vitacura": "#4f8cff", "Las Condes": "#22c55e", "Lo Barnechea": "#f59e0b" };
+let DATA = [], VIEW = [], META = {}, map, markerLayer, activeId = null;
+let KEYWORD = ""; // keyword de búsqueda activa (para resaltar en el render)
+
+const fmt = (n) => n == null ? "—" : n.toLocaleString("es-CL");
+const el = (id) => document.getElementById(id);
+
+// ── Estado persistente (localStorage) ─────────────────────────────────────
+// FAVS: Set de ids marcados como favorito.
+// OVERRIDES: { id: { jardin:true|false, terraza:..., duplex:..., bodega:..., piscina:... } }
+//   corrige la clasificación del scraper cuando Pedro ve que está mal.
+const LS_FAV = "propiedad_favoritos_v1";
+const LS_REJ = "propiedad_rechazados_v1";
+const LS_OVR = "propiedad_overrides_v1";
+const CARACS_EDIT = [
+  { key: "jardin",  label: "🌳 Jardín" },
+  { key: "terraza", label: "🌤️ Terraza" },
+  { key: "duplex",  label: "🏠 Dúplex" },
+  { key: "bodega",  label: "📦 Bodega" },
+  { key: "piscina", label: "🏊 Piscina" },
+];
+
+let FAVS = new Set();
+let REJS = new Set();
+let OVERRIDES = {};
+
+function loadState() {
+  try { FAVS = new Set(JSON.parse(localStorage.getItem(LS_FAV) || "[]")); } catch { FAVS = new Set(); }
+  try { REJS = new Set(JSON.parse(localStorage.getItem(LS_REJ) || "[]")); } catch { REJS = new Set(); }
+  try { OVERRIDES = JSON.parse(localStorage.getItem(LS_OVR) || "{}"); } catch { OVERRIDES = {}; }
+}
+function saveFavs() { localStorage.setItem(LS_FAV, JSON.stringify([...FAVS])); }
+function saveRejs() { localStorage.setItem(LS_REJ, JSON.stringify([...REJS])); }
+function saveOverrides() { localStorage.setItem(LS_OVR, JSON.stringify(OVERRIDES)); }
+
+function isFav(id) { return FAVS.has(id); }
+function toggleFav(id) {
+  if (FAVS.has(id)) FAVS.delete(id); else FAVS.add(id);
+  saveFavs(); updateFavCount();
+}
+function updateFavCount() { el("fav-count").textContent = FAVS.size; }
+
+function isRej(id) { return REJS.has(id); }
+function toggleRej(id) {
+  if (REJS.has(id)) REJS.delete(id); else REJS.add(id);
+  saveRejs(); updateRejCount();
+}
+function updateRejCount() { el("rej-count").textContent = REJS.size; }
+
+// Valor efectivo de una característica: override manual > dato del scraper.
+function effCarac(p, key) {
+  const ovr = OVERRIDES[p.id];
+  if (ovr && key in ovr) return ovr[key];
+  return p[key] ?? null;
+}
+function setCarac(p, key, val) {
+  const ovr = OVERRIDES[p.id] || (OVERRIDES[p.id] = {});
+  if (val === (p[key] ?? null)) delete ovr[key];  // vuelve al valor original → no guardar override
+  else ovr[key] = val;
+  if (Object.keys(ovr).length === 0) delete OVERRIDES[p.id];
+  saveOverrides();
+}
+function hasOverride(p, key) {
+  const ovr = OVERRIDES[p.id];
+  return !!(ovr && key in ovr);
+}
+
+// ── Barrio (editable, con override manual) ─────────────────────────────────
+// El barrio efectivo respeta la corrección manual sobre el valor del scraper.
+// Internamente el override se guarda con la clave "__barrio" dentro de OVERRIDES[id].
+function effBarrio(p) {
+  const ovr = OVERRIDES[p.id];
+  if (ovr && "__barrio" in ovr) return ovr.__barrio;   // puede ser null ("Sin sector")
+  return p.barrio ?? null;
+}
+function setBarrio(p, val) {
+  const orig = p.barrio ?? null;
+  const ovr = OVERRIDES[p.id] || (OVERRIDES[p.id] = {});
+  if (val === orig) delete ovr.__barrio;               // vuelve al valor original → no guardar
+  else ovr.__barrio = val;
+  if (Object.keys(ovr).length === 0) delete OVERRIDES[p.id];
+  saveOverrides();
+}
+function hasBarrioOverride(p) {
+  const ovr = OVERRIDES[p.id];
+  return !!(ovr && "__barrio" in ovr);
+}
+// Lista canónica de barrios de una comuna: usa la metadata del scraper si existe,
+// con fallback a los barrios efectivamente presentes en los datos.
+function barriosDeComuna(comuna) {
+  const meta = META?.barrios_por_comuna?.[comuna];
+  if (meta && meta.length) return [...meta];
+  return [...new Set(DATA.filter((p) => p.comuna === comuna && p.barrio).map((p) => p.barrio))].sort();
+}
+
+async function loadData() {
+  // Intenta datos reales; si no existen, cae a la muestra.
+  for (const path of ["../data/datos.json", "../data/datos.sample.json"]) {
+    try {
+      const res = await fetch(path, { cache: "no-store" });
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (json?.meta?.muestra) el("banner").style.display = "inline-block";
+      META = json.meta || {};
+      return json.propiedades || [];
+    } catch (e) { /* siguiente */ }
+  }
+  return [];
+}
+
+function buildComunaFilters() {
+  const comunas = [...new Set(DATA.map((p) => p.comuna).filter(Boolean))].sort();
+  const wrap = el("f-comunas");
+  wrap.innerHTML = "";
+  comunas.forEach((c) => {
+    const lbl = document.createElement("label");
+    lbl.className = "check";
+    lbl.innerHTML = `<input type="checkbox" value="${c}" checked /> <span>${c}</span>`;
+    lbl.querySelector("input").addEventListener("change", () => { buildBarrioFilter(); apply(); });
+    wrap.appendChild(lbl);
+  });
+}
+
+function buildOrientacionFilter() {
+  const vals = [...new Set(DATA.map((p) => p.orientacion).filter(Boolean))].sort();
+  const sel = el("orientacion");
+  vals.forEach((v) => {
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    sel.appendChild(opt);
+  });
+}
+
+// Puebla el selector de barrio según las comunas marcadas. Los sectores se
+// muestran agrupados por comuna (optgroup) e incluye "Sin sector" si aplica.
+// Conserva la selección previa si el barrio sigue disponible.
+function buildBarrioFilter() {
+  const sel = el("barrio");
+  const prev = sel.value;
+  const comunas = [...document.querySelectorAll("#f-comunas input:checked")].map((i) => i.value);
+  const activas = comunas.length ? comunas : [...new Set(DATA.map((p) => p.comuna).filter(Boolean))];
+  sel.innerHTML = `<option value="">Todos los sectores</option>`;
+  let haySin = false;
+  activas.sort().forEach((comuna) => {
+    const barrios = [...new Set(
+      DATA.filter((p) => p.comuna === comuna && p.barrio).map((p) => p.barrio)
+    )].sort();
+    if (DATA.some((p) => p.comuna === comuna && !p.barrio)) haySin = true;
+    if (!barrios.length) return;
+    const og = document.createElement("optgroup");
+    og.label = comuna;
+    barrios.forEach((b) => {
+      const opt = document.createElement("option");
+      opt.value = b; opt.textContent = b;
+      og.appendChild(opt);
+    });
+    sel.appendChild(og);
+  });
+  if (haySin) {
+    const opt = document.createElement("option");
+    opt.value = "__sin__"; opt.textContent = "Sin sector";
+    sel.appendChild(opt);
+  }
+  // restaurar selección si sigue existiendo
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+}
+
+function readFilters() {
+  const comunas = [...document.querySelectorAll("#f-comunas input:checked")].map((i) => i.value);
+  const num = (id) => { const v = parseFloat(el(id).value); return Number.isNaN(v) ? null : v; };
+  return {
+    comunas,
+    q: el("buscar").value.trim().toLowerCase(),
+    barrio: el("barrio").value,
+    precioMin: num("precio-min"), precioMax: num("precio-max"),
+    minDorm: num("min-dorm") ?? 0, minBanos: num("min-banos") ?? 0, minEstac: num("min-estac") ?? 0,
+    antMin: num("ant-min"), antMax: num("ant-max"),
+    stotMin: num("stot-min"), stotMax: num("stot-max"),
+    sutilMin: num("sutil-min"), sutilMax: num("sutil-max"),
+    ufm2Min: num("ufm2-min"), ufm2Max: num("ufm2-max"),
+    gcMin: num("gc-min"), gcMax: num("gc-max"),
+    pisoMin: num("piso-min"), pisoMax: num("piso-max"),
+    orientacion: el("orientacion").value,
+    jardin: el("chk-jardin").checked,
+    duplex: el("chk-duplex").checked,
+    bodega: el("chk-bodega").checked,
+    favoritos: el("chk-favoritos").checked,
+    verRechazados: el("chk-ver-rechazados").checked,
+    orden: el("orden").value,
+  };
+}
+
+function inRange(v, min, max) {
+  if (v == null) return true;           // dato faltante no descarta
+  if (min != null && v < min) return false;
+  if (max != null && v > max) return false;
+  return true;
+}
+function meetsMin(v, min) { return v == null || v >= min; }
+
+function apply() {
+  const f = readFilters();
+  KEYWORD = f.q;
+  VIEW = DATA.filter((p) => {
+    if (f.q) {
+      const hay = ((p.titulo || "") + " " + (p.descripcion || "")).toLowerCase();
+      if (!hay.includes(f.q)) return false;
+    }
+    if (f.comunas.length && !f.comunas.includes(p.comuna)) return false;
+    if (f.barrio === "__sin__") { if (effBarrio(p)) return false; }
+    else if (f.barrio && effBarrio(p) !== f.barrio) return false;
+    if (!meetsMin(p.dormitorios, f.minDorm)) return false;
+    if (!meetsMin(p.banos, f.minBanos)) return false;
+    if (!meetsMin(p.estacionamientos, f.minEstac)) return false;
+    if (!inRange(p.precio_uf, f.precioMin, f.precioMax)) return false;
+    if (!inRange(p.antiguedad, f.antMin, f.antMax)) return false;
+    if (!inRange(p.superficie_total, f.stotMin, f.stotMax)) return false;
+    if (!inRange(p.superficie_util, f.sutilMin, f.sutilMax)) return false;
+    if (!inRange(p.uf_m2_util, f.ufm2Min, f.ufm2Max)) return false;
+    if (!inRange(p.gastos_comunes, f.gcMin, f.gcMax)) return false;
+    if (!inRange(p.piso, f.pisoMin, f.pisoMax)) return false;
+    if (f.orientacion && p.orientacion !== f.orientacion) return false;
+    // jardín/dúplex/bodega usan el valor EFECTIVO (respeta correcciones manuales)
+    if (f.jardin && effCarac(p, "jardin") !== true) return false;
+    if (f.duplex && effCarac(p, "duplex") !== true) return false;
+    if (f.bodega && effCarac(p, "bodega") !== true) return false;
+    if (f.favoritos && !isFav(p.id)) return false;
+    // rechazados: ocultos por defecto; solo se ven si "Mostrar rechazados" está activo
+    if (isRej(p.id) && !f.verRechazados) return false;
+    return true;
+  });
+
+  const [key, dir] = f.orden.split("-");
+  VIEW.sort((a, b) => {
+    const av = a[key] ?? Infinity, bv = b[key] ?? Infinity;
+    return dir === "asc" ? av - bv : bv - av;
+  });
+
+  renderSummary();
+  renderTable();
+  renderMarkers();
+}
+
+function median(arr) {
+  const s = arr.filter((n) => n != null).sort((a, b) => a - b);
+  if (!s.length) return null;
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function renderSummary() {
+  const precios = VIEW.map((p) => p.precio_uf).filter((n) => n != null);
+  const ufm2 = VIEW.map((p) => p.uf_m2_util).filter((n) => n != null);
+  const avg = (a) => a.length ? Math.round(a.reduce((s, n) => s + n, 0) / a.length) : null;
+  el("summary").innerHTML = `
+    <div class="stat"><div class="k">Resultados</div><div class="v">${VIEW.length}</div></div>
+    <div class="stat"><div class="k">Precio UF prom.</div><div class="v">${fmt(avg(precios))}</div></div>
+    <div class="stat"><div class="k">Precio UF mediana</div><div class="v">${fmt(median(precios))}</div></div>
+    <div class="stat"><div class="k">UF/m² prom.</div><div class="v">${fmt(avg(ufm2))}</div></div>
+  `;
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Escapa una cadena para usarla literal dentro de un RegExp.
+function escRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+// Resalta la keyword q dentro de texto: escapa el HTML y envuelve las coincidencias en <mark>.
+function hl(texto, q) {
+  const safe = esc(texto);
+  if (!q) return safe;
+  return safe.replace(new RegExp(escRe(esc(q)), "gi"), (m) => `<mark>${m}</mark>`);
+}
+
+// Fragmento de ~120 chars alrededor de la primera aparición de q en la descripción, con resaltado.
+function fragmento(desc, q) {
+  if (!desc || !q) return "";
+  const low = desc.toLowerCase();
+  const i = low.indexOf(q);
+  if (i < 0) return "";
+  const rad = 60;
+  let ini = Math.max(0, i - rad);
+  let fin = Math.min(desc.length, i + q.length + rad);
+  let frag = desc.slice(ini, fin).trim();
+  if (ini > 0) frag = "… " + frag;
+  if (fin < desc.length) frag = frag + " …";
+  return `<div class="frag">${hl(frag, q)}</div>`;
+}
+
+function thumbHtml(p) {
+  if (p.imagen) return `<img class="thumb" src="${esc(p.imagen)}" loading="lazy" alt=""
+    onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb thumb-ph',textContent:'🏢'}))" />`;
+  return `<div class="thumb thumb-ph">🏢</div>`;
+}
+
+// Etiquetas de características. Las 5 editables (jardín, terraza, dúplex, bodega,
+// piscina) se muestran SIEMPRE como toggles clicables: con color = activa,
+// apagada (gris punteado) = inactiva. Un clic alterna el estado y lo guarda.
+// Las corregidas manualmente llevan borde punteado. Debajo van las de texto libre.
+function caracHtml(p) {
+  const chips = CARACS_EDIT.map((c) => {
+    const on = effCarac(p, c.key) === true;
+    const base = c.key === "jardin" ? "tag j" : c.key === "duplex" ? "tag d" : "tag";
+    const cls = `${base} edit${on ? "" : " off"}${hasOverride(p, c.key) ? " edited" : ""}`;
+    const title = on ? "Quitar esta característica" : "Marcar que sí la tiene";
+    return `<span class="${cls}" data-tog="${esc(p.id)}" data-key="${c.key}" title="${title}">${esc(c.label)}</span>`;
+  });
+  // características de texto libre que no correspondan a las editables (no clicables)
+  for (const t of (p.caracteristicas || [])) {
+    if (/jard|d[uú]plex|bodega|piscina|terraza/i.test(t)) continue;
+    chips.push(`<span class="tag">${esc(t)}</span>`);
+  }
+  return `<br><span style="opacity:.95">${chips.join("")}</span>`;
+}
+
+// Celda de comuna: chip de comuna + barrio (editable) debajo.
+// El barrio se muestra como un "chip" clicable; al pulsarlo se transforma en un
+// <select> con todos los sectores de esa comuna (+ "Sin sector") para corregirlo.
+function comunaCellHtml(p) {
+  const barrio = effBarrio(p);
+  const edited = hasBarrioOverride(p) ? " edited" : "";
+  const txt = barrio || "Sin sector";
+  const muted = barrio ? "" : ' style="opacity:.6"';
+  return `<span class="comuna-chip">${esc(p.comuna ?? "—")}</span>` +
+    `<br><span class="barrio-chip${edited}" data-barrio="${esc(p.id)}" title="Clic para cambiar el sector"${muted}>📍 ${esc(txt)}</span>`;
+}
+
+// Convierte el chip de barrio en un <select> editable in situ.
+function editBarrio(p, chipEl) {
+  const td = chipEl.closest("td");
+  const actual = effBarrio(p);
+  const opciones = barriosDeComuna(p.comuna);
+  const sel = document.createElement("select");
+  sel.className = "barrio-edit";
+  sel.innerHTML =
+    `<option value="__sin__"${actual == null ? " selected" : ""}>Sin sector</option>` +
+    opciones.map((b) => `<option value="${esc(b)}"${b === actual ? " selected" : ""}>${esc(b)}</option>`).join("");
+  // reemplaza solo el chip por el select (deja el chip de comuna)
+  chipEl.replaceWith(sel);
+  sel.focus();
+  const commit = () => {
+    const val = sel.value === "__sin__" ? null : sel.value;
+    setBarrio(p, val);
+    // re-render de la celda completa
+    td.innerHTML = comunaCellHtml(p);
+    // si hay filtro de barrio activo y la propiedad ya no calza, refrescar la vista
+    const f = readFilters();
+    if (f.barrio) apply();
+  };
+  sel.addEventListener("change", commit);
+  sel.addEventListener("blur", commit);
+  sel.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { td.innerHTML = comunaCellHtml(p); } });
+}
+
+// Celda de título: resalta la keyword y, si solo aparece en la descripción, muestra un fragmento.
+function tituloCellHtml(p) {
+  const q = KEYWORD;
+  let html = hl(p.titulo ?? "", q);
+  if (q) {
+    const enTitulo = (p.titulo || "").toLowerCase().includes(q);
+    if (!enTitulo) html += fragmento(p.descripcion || "", q);
+  }
+  return html + caracHtml(p);
+}
+
+function renderTable() {
+  const tb = el("tbody");
+  tb.innerHTML = "";
+  el("empty").style.display = VIEW.length ? "none" : "block";
+  VIEW.forEach((p) => {
+    const tr = document.createElement("tr");
+    tr.dataset.id = p.id;
+    const favOn = isFav(p.id);
+    const rejOn = isRej(p.id);
+    if (rejOn) tr.classList.add("rejected");
+    tr.innerHTML = `
+      <td style="white-space:nowrap">
+        <button class="fav-btn ${favOn ? "on" : ""}" data-fav="${esc(p.id)}" title="Favorito">${favOn ? "⭐" : "☆"}</button>
+        <button class="rej-btn ${rejOn ? "on" : ""}" data-rej="${esc(p.id)}" title="Rechazar (ocultar)">❌</button>
+      </td>
+      <td>${thumbHtml(p)}</td>
+      <td class="destacar">${tituloCellHtml(p)}</td>
+      <td class="comuna-cell">${comunaCellHtml(p)}</td>
+      <td class="num">${fmt(p.superficie_util)}</td>
+      <td class="num">${fmt(p.superficie_total)}</td>
+      <td class="num">${fmt(p.precio_uf)}</td>
+      <td class="num">${fmt(p.uf_m2_util)}</td>
+      <td class="num">${fmt(p.dormitorios)}</td>
+      <td class="num">${fmt(p.banos)}</td>
+      <td class="num">${fmt(p.estacionamientos)}</td>
+      <td class="num">${fmt(p.piso)}</td>
+      <td>${p.orientacion ?? "—"}</td>
+      <td class="num">${fmt(p.gastos_comunes)}</td>
+      <td class="num">${fmt(p.antiguedad)}</td>
+      <td>${p.publicante ?? "—"}</td>
+      <td>${p.url ? `<a class="link" href="${p.url}" target="_blank" rel="noopener">Ver ↗</a>` : "—"}</td>
+    `;
+    tr.addEventListener("click", (ev) => {
+      const t = ev.target;
+      if (t.tagName === "A") return;
+      if (t.closest("[data-fav]")) { toggleFavRow(p.id, t.closest("[data-fav]")); return; }
+      if (t.closest("[data-rej]")) { toggleRejRow(p.id, t.closest("[data-rej]")); return; }
+      const tog = t.closest("[data-tog]");
+      if (tog) { toggleCaracTag(p, tog); return; }   // clic en tag = activar/desactivar
+      const brt = t.closest("[data-barrio]");
+      if (brt) { editBarrio(p, brt); return; }        // clic en barrio = editar sector
+      focusProperty(p.id);
+    });
+    tb.appendChild(tr);
+  });
+}
+
+// Marca/desmarca favorito desde la fila, actualizando solo el botón (sin re-render completo).
+function toggleFavRow(id, btn) {
+  toggleFav(id);
+  const on = isFav(id);
+  btn.classList.toggle("on", on);
+  btn.textContent = on ? "⭐" : "☆";
+  // si el filtro "solo favoritos" está activo y se quitó, refrescar la vista
+  if (el("chk-favoritos").checked && !on) apply();
+}
+
+// Marca/desmarca rechazado desde la fila. Un rechazado se oculta salvo que
+// "Mostrar rechazados" esté activo; por eso re-aplicamos filtros al marcar.
+function toggleRejRow(id, btn) {
+  toggleRej(id);
+  const on = isRej(id);
+  btn.classList.toggle("on", on);
+  const tr = btn.closest("tr");
+  if (tr) tr.classList.toggle("rejected", on);
+  // al rechazar (y sin "mostrar rechazados"), la fila debe desaparecer → re-aplicar.
+  // al quitar el rechazo estando el filtro de "solo favoritos" u otros, también conviene refrescar el mapa.
+  if (!el("chk-ver-rechazados").checked) apply();
+  else renderMarkers();
+}
+
+// Clic directo sobre un tag de característica: alterna su estado (activa ↔ inactiva)
+// y actualiza solo esa celda, sin re-render completo de la tabla.
+function toggleCaracTag(p, tagEl) {
+  const key = tagEl.getAttribute("data-key");
+  const nuevo = effCarac(p, key) !== true;   // si estaba activa → apagar; si no → encender
+  setCarac(p, key, nuevo);
+  // re-render de la celda de características de esa fila
+  const tr = document.querySelector(`#tbody tr[data-id="${CSS.escape(p.id)}"]`);
+  if (tr) tr.children[2].innerHTML = tituloCellHtml(p);
+  // si hay filtro de característica activo, puede cambiar qué filas se muestran
+  const f = readFilters();
+  if ((f.jardin && key === "jardin") || (f.duplex && key === "duplex") || (f.bodega && key === "bodega")) apply();
+}
+
+function renderMarkers() {
+  markerLayer.clearLayers();
+  const pts = [];
+  VIEW.forEach((p) => {
+    if (p.lat == null || p.lng == null) return;
+    const color = COMUNA_COLOR[p.comuna] || "#888";
+    const m = L.circleMarker([p.lat, p.lng], {
+      radius: 8, color: "#0b0d10", weight: 1.5, fillColor: color, fillOpacity: 0.9,
+    });
+    const extras = [];
+    if (p.piso != null) extras.push(`Piso ${fmt(p.piso)}`);
+    if (p.orientacion) extras.push(esc(p.orientacion));
+    if (p.gastos_comunes != null) extras.push(`GC $${fmt(p.gastos_comunes)}`);
+    const flags = CARACS_EDIT.filter((c) => effCarac(p, c.key) === true).map((c) => c.label);
+    m.bindPopup(`
+      ${p.imagen ? `<img src="${esc(p.imagen)}" style="width:100%;max-width:230px;height:120px;object-fit:cover;border-radius:6px;margin-bottom:6px" onerror="this.style.display='none'" />` : ""}
+      <b>${esc(p.titulo ?? "Departamento")}</b><br>
+      ${esc(p.comuna ?? "")}${p.barrio ? " · " + esc(p.barrio) : ""} · <b>${fmt(p.precio_uf)} UF</b><br>
+      ${fmt(p.dormitorios)}D / ${fmt(p.banos)}B / ${fmt(p.estacionamientos)}E ·
+      ${fmt(p.superficie_util)} m² útil<br>
+      ${p.uf_m2_util != null ? `${fmt(p.uf_m2_util)} UF/m²<br>` : ""}
+      ${extras.length ? extras.join(" · ") + "<br>" : ""}
+      ${flags.length ? `<span style="color:#166534">${esc(flags.join(" · "))}</span><br>` : ""}
+      ${p.url ? `<a href="${p.url}" target="_blank" rel="noopener">Ver publicación ↗</a>` : ""}
+    `);
+    m._propId = p.id;
+    m.addTo(markerLayer);
+    pts.push([p.lat, p.lng]);
+  });
+  if (pts.length) {
+    try { map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 }); } catch (e) {}
+  }
+}
+
+function focusProperty(id) {
+  activeId = id;
+  document.querySelectorAll("#tbody tr").forEach((tr) =>
+    tr.classList.toggle("active", tr.dataset.id === id));
+  const p = DATA.find((x) => x.id === id);
+  if (p && p.lat != null) {
+    map.setView([p.lat, p.lng], 16, { animate: true });
+    markerLayer.eachLayer((m) => { if (m._propId === id) m.openPopup(); });
+  }
+  const row = document.querySelector(`#tbody tr[data-id="${id}"]`);
+  if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function initMap() {
+  map = L.map("map", { scrollWheelZoom: true }).setView([-33.39, -70.56], 13);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: "© OpenStreetMap",
+  }).addTo(map);
+  markerLayer = L.layerGroup().addTo(map);
+}
+
+function wireControls() {
+  ["buscar","precio-min","precio-max","min-dorm","min-banos","min-estac","ant-min","ant-max",
+   "stot-min","stot-max","sutil-min","sutil-max","ufm2-min","ufm2-max",
+   "gc-min","gc-max","piso-min","piso-max"].forEach((id) =>
+    el(id).addEventListener("input", apply));
+  ["orientacion","orden","barrio"].forEach((id) => el(id).addEventListener("change", apply));
+  ["chk-jardin","chk-duplex","chk-bodega","chk-favoritos","chk-ver-rechazados"].forEach((id) => el(id).addEventListener("change", apply));
+  el("reset").addEventListener("click", () => {
+    el("buscar").value = "";
+    document.querySelectorAll("#f-comunas input").forEach((i) => (i.checked = true));
+    ["precio-min","precio-max","ant-min","ant-max","stot-min","stot-max",
+     "sutil-min","sutil-max","ufm2-min","ufm2-max","gc-min","gc-max",
+     "piso-min","piso-max"].forEach((id) => (el(id).value = ""));
+    el("min-dorm").value = 3; el("min-banos").value = 2; el("min-estac").value = 1;
+    el("orientacion").value = "";
+    buildBarrioFilter(); el("barrio").value = "";
+    ["chk-jardin","chk-duplex","chk-bodega","chk-favoritos","chk-ver-rechazados"].forEach((id) => (el(id).checked = false));
+    el("orden").value = "precio_uf-asc";
+    apply();
+  });
+  document.querySelectorAll("thead th[data-sort]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      const cur = el("orden").value;
+      const dir = cur.startsWith(key) && cur.endsWith("asc") ? "desc" : "asc";
+      el("orden").value = `${key}-${dir}`;
+      // el <select> puede no tener esa opción exacta; forzamos el orden igual
+      apply();
+    });
+  });
+}
+
+(async function init() {
+  loadState();
+  initMap();
+  DATA = await loadData();
+  buildComunaFilters();
+  buildOrientacionFilter();
+  buildBarrioFilter();
+  wireControls();
+  updateFavCount();
+  updateRejCount();
+  apply();
+})();
+</script>
+</body>
+</html>
