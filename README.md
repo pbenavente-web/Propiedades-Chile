@@ -106,11 +106,28 @@ Los parámetros están en dos bloques: `VENTA` (compra) y `ARRIENDO`. Edita el q
 
 ### Si sale 0 resultados o errores de navegación
 
-1. Pon `HEADLESS: false` en `config.mjs` y vuelve a correr para ver la ventana del navegador.
-2. Verifica que las URLs de comuna sigan válidas abriéndolas tú en el navegador:
-   `https://www.portalinmobiliario.com/venta/departamento/vitacura-metropolitana/`
-3. Si el sitio pide resolver un captcha, corre con `HEADLESS: false` y resuélvelo manualmente una
-   vez; Playwright continúa después.
+Portal Inmobiliario a veces exige **verificación de cuenta / inicio de sesión** (redirige a
+`/gz/account-verification`). Un navegador headless no la pasa y devuelve 0 resultados. Para esos casos
+el scraper trae un **modo login manual + sesión persistente**:
+
+```bash
+HEADLESS=false OP=arriendo node fetch.mjs
+```
+
+1. Se abre una **ventana real** de Chromium. Si el sitio pide verificación o credenciales,
+   **ingrésalas tú mismo en esa ventana** (el script nunca toca tus credenciales).
+2. Cuando veas el sitio normal (ya logueado), **vuelve a la terminal y presiona ENTER**: ahí recién
+   empieza a recolectar, con la sesión ya autenticada.
+3. La sesión queda guardada en `scraper/.session/` (ignorada por git). En las próximas corridas puedes
+   saltarte el login y correr headless normalmente (`OP=arriendo node fetch.mjs`); si vuelve a pedir
+   verificación, repite el paso con `HEADLESS=false`.
+4. También puedes forzar la pausa de login en headless con `LOGIN=1 OP=arriendo node fetch.mjs`.
+
+Otras verificaciones:
+
+- Confirma que las URLs de comuna sigan válidas abriéndolas tú en el navegador:
+  `https://www.portalinmobiliario.com/venta/departamento/vitacura-metropolitana/`
+- Si un captcha persiste, resuélvelo en la ventana visible una vez; Playwright continúa después.
 
 ## Paso 3 — Ver el dashboard
 

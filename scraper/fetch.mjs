@@ -14,7 +14,7 @@
 //   - Paginación: sufijo _Desde_49, _Desde_97, … (de a 48).
 //   - GPS: no viene en el listado; se saca visitando la ficha (opcional, VISITAR_FICHAS).
 
-import { CONFIG } from "./config.mjs";
+import { CONFIG, OPERACION } from "./config.mjs";
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,21 +23,58 @@ import { chromium } from "playwright";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASE = "https://www.portalinmobiliario.com";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Etiqueta para los mensajes de progreso según la operación activa.
+const ITEM_LABEL = OPERACION === "arriendo" ? "arriendos" : "usados";
+
+// Carpeta de la sesión persistente del navegador (cookies + login). Se guarda aquí
+// para reutilizar la sesión entre corridas: te logueas UNA vez y las próximas ya
+// quedan autenticadas. NUNCA se commitea (ver .gitignore) — es tu sesión privada.
+const USER_DATA_DIR = resolve(__dirname, ".session");
 
 const LAUNCH_ARGS = [
   "--disable-features=DownloadableFontsPruning",
   "--font-render-hinting=none",
   "--disable-remote-fonts", // evita los popups "descargar tipo de letra Osaka/STHeiti"
+  "--disable-blink-features=AutomationControlled", // reduce el flag trivial de "navegador automatizado"
 ];
+
+// Pausa interactiva: espera a que presiones ENTER en la terminal.
+function esperarEnter(mensaje) {
+  return new Promise((resolve) => {
+    process.stdout.write(mensaje);
+    process.stdin.resume();
+    process.stdin.once("data", () => { process.stdin.pause(); resolve(); });
+  });
+}
+
+// Abre el sitio y espera a que TÚ te loguees / pases la verificación en la ventana.
+// Solo tiene sentido en modo visible (headed). Tú ingresas tus credenciales; el
+// script no las toca. Al presionar ENTER, continúa con la sesión ya autenticada.
+async function pausaLoginManual(context) {
+  const page = await context.newPage();
+  try {
+    await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: CONFIG.TIMEOUT_MS }).catch(() => {});
+  } catch { /* da igual: lo importante es que la ventana quede abierta */ }
+  console.log("\n──────────────────────────────────────────────────────────────");
+  console.log("  INICIA SESIÓN EN LA VENTANA DEL NAVEGADOR");
+  console.log("  • Si aparece verificación o pide credenciales, hazlo TÚ ahí.");
+  console.log("  • Cuando veas el sitio normal (ya logueado), vuelve aquí.");
+  console.log("  • La sesión queda guardada para las próximas corridas.");
+  console.log("──────────────────────────────────────────────────────────────");
+  await esperarEnter("\n  ⏎  Presiona ENTER cuando estés listo para empezar a recolectar… ");
+  try { await page.close(); } catch {}
+}
 
 // ---------- construcción de URL con filtros ----------
 function buildUrl(comuna, desde) {
-  let url = `${BASE}/venta/departamento/${comuna.slug}`;
+  // La ruta cambia según la operación: /venta/… (compra) o /arriendo/… (arriendo).
+  const opPath = OPERACION === "arriendo" ? "arriendo" : "venta";
+  let url = `${BASE}/${opPath}/departamento/${comuna.slug}`;
   const tokens = [];
   if (CONFIG.MIN_DORMITORIOS > 0) tokens.push(`_BEDROOMS_${CONFIG.MIN_DORMITORIOS}-*`);
   if (CONFIG.MIN_BANOS > 0) tokens.push(`_FULL*BATHROOMS_${CONFIG.MIN_BANOS}-*`);
   if (CONFIG.MIN_ESTACIONAMIENTOS > 0) tokens.push(`_PARKING*LOTS_${CONFIG.MIN_ESTACIONAMIENTOS}-*`);
-  if (CONFIG.SOLO_USADAS) tokens.push(`_ITEM*CONDITION_2230581`); // 2230581 = usado
+  if (CONFIG.SOLO_USADAS) tokens.push(`_ITEM*CONDITION_2230581`); // 2230581 = usado (solo venta)
   tokens.push(`_OrderId_PRICE`);
   if (desde && desde > 1) tokens.push(`_Desde_${desde}`);
   tokens.push(`_NoIndex_True`);
@@ -97,17 +134,19 @@ async function extraerTarjetas(page) {
                : (srcset ? srcset.split(",")[0].trim().split(" ")[0] : null);
       }
 
-      // precio UF desde aria-label ("6290 unidades de fomento") o desde el texto
-      let precioUF = null, monedaTxt = null;
+      // Precio en su unidad NATIVA: UF ("6290 unidades de fomento") o CLP ("1500000 pesos").
+      // precioNum queda en esa unidad; monedaTxt indica cuál. En venta suele ser UF; en
+      // arriendo suele ser CLP/mes. La conversión entre monedas se hace luego en Node.
+      let precioNum = null, monedaTxt = null;
       if (priceEl) {
         const aria = priceEl.getAttribute("aria-label") || "";
         const mUF = aria.match(/([\d.]+)\s*unidades de fomento/i);
         const mPeso = aria.match(/([\d.]+)\s*pesos/i);
-        if (mUF) { precioUF = Number(mUF[1].replace(/\./g, "")); monedaTxt = "UF"; }
-        else if (mPeso) { precioUF = null; monedaTxt = "CLP"; }
-        if (precioUF == null) {
+        if (mUF) { precioNum = Number(mUF[1].replace(/\./g, "")); monedaTxt = "UF"; }
+        else if (mPeso) { precioNum = Number(mPeso[1].replace(/\./g, "")); monedaTxt = "CLP"; }
+        if (precioNum == null) {
           const t = priceEl.textContent.replace(/[^\d]/g, "");
-          if (t) precioUF = Number(t);
+          if (t) precioNum = Number(t);
         }
       }
       // ¿el precio está en pesos? el prefijo lo indica
@@ -122,8 +161,8 @@ async function extraerTarjetas(page) {
         attrs,
         pill,
         imagen,
-        precioNum: precioUF,
-        monedaTxt: esPeso ? "CLP" : monedaTxt,
+        precioNum,
+        monedaTxt: monedaTxt || (esPeso ? "CLP" : null),
       };
     });
   });
@@ -149,18 +188,30 @@ function normalize(raw, comunaNombre, detalle = {}) {
   // Si solo hay una superficie, tratarla como útil (es la que más aparece en los listados).
   if (sutil == null && stot != null) { sutil = stot; stot = null; }
 
-  // precio
-  let precio_uf = null, moneda = raw.monedaTxt;
-  if (raw.monedaTxt === "UF") precio_uf = raw.precioNum;
-  else if (raw.monedaTxt === "CLP" && raw.precioNum && CONFIG.UF_VALOR > 0)
-    precio_uf = Math.round(raw.precioNum / CONFIG.UF_VALOR);
-  else if (raw.precioNum) precio_uf = raw.precioNum; // asumir UF si no hay pista de peso
+  // precio — depende de la operación:
+  //   venta    → precio_uf  (si viene en pesos, se convierte a UF con UF_VALOR)
+  //   arriendo → precio_clp (pesos/mes; si viene en UF, se convierte a pesos con UF_VALOR)
+  const esArriendo = OPERACION === "arriendo";
+  let precio_uf = null, precio_clp = null, moneda = raw.monedaTxt;
+  if (esArriendo) {
+    if (raw.monedaTxt === "CLP") precio_clp = raw.precioNum;
+    else if (raw.monedaTxt === "UF" && raw.precioNum && CONFIG.UF_VALOR > 0)
+      precio_clp = Math.round(raw.precioNum * CONFIG.UF_VALOR);
+    else if (raw.precioNum) precio_clp = raw.precioNum; // asumir CLP si no hay pista
+  } else {
+    if (raw.monedaTxt === "UF") precio_uf = raw.precioNum;
+    else if (raw.monedaTxt === "CLP" && raw.precioNum && CONFIG.UF_VALOR > 0)
+      precio_uf = Math.round(raw.precioNum / CONFIG.UF_VALOR);
+    else if (raw.precioNum) precio_uf = raw.precioNum; // asumir UF si no hay pista de peso
+  }
 
   // superficie desde detalle si el listado no la tenía
   sutil = sutil ?? detalle.superficie_util ?? null;
   stot = stot ?? detalle.superficie_total ?? null;
 
   const uf_m2_util = precio_uf && sutil ? Math.round((precio_uf / sutil) * 10) / 10 : null;
+  // $/m² útil: equivalente al UF/m² pero en pesos (indicador de conveniencia del arriendo).
+  const clp_m2_util = precio_clp && sutil ? Math.round(precio_clp / sutil) : null;
 
   // comuna: última parte de la ubicación suele ser la comuna
   let comuna = comunaNombre;
@@ -193,8 +244,8 @@ function normalize(raw, comunaNombre, detalle = {}) {
 
   return {
     tipo: "Departamento",
-    operacion: "Compra",
-    modalidad: esProyecto ? "Proyecto" : "Usado",
+    operacion: esArriendo ? "Arriendo" : "Compra",
+    modalidad: esArriendo ? "Arriendo" : (esProyecto ? "Proyecto" : "Usado"),
     comuna,
     dormitorios: dorm ?? detalle.dormitorios ?? null,
     banos: banos ?? detalle.banos ?? null,
@@ -203,6 +254,8 @@ function normalize(raw, comunaNombre, detalle = {}) {
     superficie_total: stot,
     superficie_util: sutil,
     precio_uf: precio_uf != null ? Math.round(precio_uf) : null,
+    precio_clp: precio_clp != null ? Math.round(precio_clp) : null,
+    clp_m2_util,
     moneda_original: moneda,
     url,
     lat: detalle.lat ?? null,
@@ -374,6 +427,14 @@ async function scrapeComuna(context, comuna) {
         await page.waitForTimeout(800);
         tarjetas = await extraerTarjetas(page);
         if (tarjetas.length) break;
+        // Página de "fin de resultados": Portal muestra "no hay inmuebles que coincidan…"
+        // al pasar el último resultado de la búsqueda filtrada. No es un bloqueo: significa
+        // que esta comuna no tiene más. Cortamos YA, sin gastar reintentos ni esperar.
+        const txt = (await page.evaluate(() => (document.body?.innerText || "")).catch(() => "")).toLowerCase();
+        if (/no hay inmuebles que coincidan|no encontramos publicaciones|no hay publicaciones que coincidan/.test(txt)) {
+          finComuna = true;
+          break;
+        }
       } catch (e) {
         const msg = e.message.split("\n")[0];
         // Pasado el nº real de resultados, Portal rebota la URL de paginación en loop
@@ -389,7 +450,7 @@ async function scrapeComuna(context, comuna) {
         }
       }
     }
-    if (finComuna) { process.stdout.write(`\r  ${comuna.nombre}: ${out.length} usados (fin de resultados)     `); break; }
+    if (finComuna) { process.stdout.write(`\r  ${comuna.nombre}: ${out.length} ${ITEM_LABEL} (fin de resultados)     `); break; }
     if (!tarjetas.length) {
       // No cortamos a la primera: una página puntual puede fallar. Cortamos tras 2 seguidas.
       if (++pagFalladas >= 2) { process.stdout.write(`\r  ${comuna.nombre}: fin (2 páginas sin datos)     `); break; }
@@ -407,7 +468,7 @@ async function scrapeComuna(context, comuna) {
       out.push({ norm, url: norm.url });
       nuevos++;
     }
-    process.stdout.write(`\r  ${comuna.nombre}: ${out.length} usados (pág ${p + 1})     `);
+    process.stdout.write(`\r  ${comuna.nombre}: ${out.length} ${ITEM_LABEL} (pág ${p + 1})     `);
     if (nuevos === 0) break;
     await sleep(CONFIG.DELAY_MS);
   }
@@ -419,14 +480,25 @@ async function scrapeComuna(context, comuna) {
 // ---------- main ----------
 async function main() {
   console.log("Abriendo navegador…");
-  const browser = await chromium.launch({ headless: CONFIG.HEADLESS, args: LAUNCH_ARGS });
-  const context = await browser.newContext({
+  // Contexto PERSISTENTE: guarda cookies/login en USER_DATA_DIR y los reutiliza
+  // entre corridas. Así, logueándote una vez, las próximas ya quedan autenticadas.
+  const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
+    headless: CONFIG.HEADLESS,
+    args: LAUNCH_ARGS,
     userAgent:
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     locale: "es-CL",
     viewport: { width: 1440, height: 900 },
   });
+
+  // Pausa de login manual: en modo visible (o con LOGIN=1), espera a que te loguees /
+  // pases la verificación antes de recolectar. Con la sesión ya guardada, puedes
+  // saltarla la próxima vez corriendo headless. Esto ocurre ANTES de bloquear imágenes
+  // para que puedas VER la página de login.
+  if (!CONFIG.HEADLESS || process.env.LOGIN === "1") {
+    await pausaLoginManual(context);
+  }
 
   // Bloquear recursos pesados (imágenes, media, fuentes) reduce muchísimo la memoria por
   // navegación — la causa del "Page crashed" tras ~90 fichas. El GPS se saca del atributo
@@ -438,7 +510,8 @@ async function main() {
     return route.continue();
   });
 
-  console.log("Buscando departamentos usados en Vitacura, Las Condes y Lo Barnechea…\n");
+  const etiquetaOp = OPERACION === "arriendo" ? "en ARRIENDO" : "usados (COMPRA)";
+  console.log(`Buscando departamentos ${etiquetaOp} en Vitacura, Las Condes y Lo Barnechea…\n`);
   const crudos = [];
   const totalesPorComuna = {};
   for (const comuna of CONFIG.COMUNAS) {
@@ -462,11 +535,14 @@ async function main() {
   const comunasOk = new Set((CONFIG.COMUNAS_VALIDAS || []).map(normComuna));
   const descartes = { comuna: 0, precio: 0, sutil: 0 };
 
+  // El precio a filtrar depende de la operación: UF en venta, CLP/mes en arriendo.
+  const precioDe = (p) => (OPERACION === "arriendo" ? p.precio_clp : p.precio_uf);
   const preFiltrado = dedup.filter((p) => {
     if (comunasOk.size && !comunasOk.has(normComuna(p.comuna))) { descartes.comuna++; return false; }
-    if (p.precio_uf != null) {
-      if (p.precio_uf < CONFIG.PRECIO_UF_MIN) { descartes.precio++; return false; }
-      if (CONFIG.PRECIO_UF_MAX != null && p.precio_uf > CONFIG.PRECIO_UF_MAX) { descartes.precio++; return false; }
+    const precio = precioDe(p);
+    if (precio != null) {
+      if (CONFIG.PRECIO_MIN != null && precio < CONFIG.PRECIO_MIN) { descartes.precio++; return false; }
+      if (CONFIG.PRECIO_MAX != null && precio > CONFIG.PRECIO_MAX) { descartes.precio++; return false; }
     }
     return true;
   });
@@ -547,7 +623,7 @@ async function main() {
     await detalPage.close();
   }
 
-  await browser.close();
+  await context.close();
 
   // Filtro final de superficie útil (dato que suele venir de la ficha, no del listado).
   // comuna y precio ya se filtraron en preFiltrado, antes de visitar fichas.
@@ -564,8 +640,12 @@ async function main() {
     meta: {
       generado: new Date().toISOString(),
       fuente: "portalinmobiliario.com (Playwright)",
+      operacion: OPERACION === "arriendo" ? "Arriendo" : "Compra",
+      moneda: CONFIG.MONEDA, // "UF" (venta) | "CLP" (arriendo, $/mes)
       uf_valor: CONFIG.UF_VALOR,
       condicion: CONFIG.SOLO_USADAS ? "used" : "todas",
+      precio_min: CONFIG.PRECIO_MIN,
+      precio_max: CONFIG.PRECIO_MAX,
       minimos: {
         dormitorios: CONFIG.MIN_DORMITORIOS,
         banos: CONFIG.MIN_BANOS,
@@ -578,6 +658,17 @@ async function main() {
   };
 
   const outPath = resolve(__dirname, CONFIG.OUTPUT);
+
+  // Protección: NO sobrescribir el archivo con 0 resultados. Un 0 casi siempre
+  // significa bloqueo/captcha o cambio de estructura del sitio, no "no hay propiedades".
+  // Sin esta guarda, una corrida fallida borraría los datos buenos ya guardados.
+  if (final.length === 0) {
+    console.log(`\n⚠️  0 resultados: NO se sobrescribió ${outPath} (se conservan los datos previos si los había).`);
+    console.log("   Corre con HEADLESS=false node fetch.mjs para ver el navegador y resolver captcha,");
+    console.log("   o node diagnostico.mjs para volcar el HTML a ./diag/ y revisar la estructura.");
+    return;
+  }
+
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, JSON.stringify(payload, null, 2), "utf8");
 

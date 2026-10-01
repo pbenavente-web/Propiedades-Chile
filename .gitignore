@@ -1,6 +1,9 @@
 # Dependencias del scraper (se reinstalan con `npm install`)
 scraper/node_modules/
 
+# Sesión persistente del navegador (cookies/login). ¡Privada! Nunca subir.
+scraper/.session/
+
 # Respaldos y volcados de diagnóstico del scraper
 data/*.bak
 scraper/diag/
