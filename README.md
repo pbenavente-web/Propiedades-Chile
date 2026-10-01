@@ -1,8 +1,9 @@
 # 🏢 Buscador de Departamentos — Vitacura · Las Condes · Lo Barnechea
 
-Búsqueda masiva de departamentos **en venta / usados** en **Portal Inmobiliario**
-(portalinmobiliario.com), con un **dashboard interactivo**: filtros en vivo, mapa con la
-ubicación GPS de cada propiedad y tabla ordenable.
+Búsqueda masiva de departamentos en **Portal Inmobiliario** (portalinmobiliario.com) para
+dos operaciones — **Compra** (venta/usados, precios en UF) y **Arriendo** (mensual, precios
+en pesos CLP) — con un **dashboard interactivo**: toggle Compra/Arriendo, filtros en vivo,
+mapa con la ubicación GPS de cada propiedad y tabla ordenable.
 
 > **Nota sobre el método:** la API pública de MercadoLibre dejó de permitir búsquedas anónimas
 > del catálogo (responde `403`). Por eso el recolector usa **Playwright** (un navegador Chromium
@@ -13,16 +14,37 @@ ubicación GPS de cada propiedad y tabla ordenable.
 ```
 PropiedadCompra/
 ├── scraper/
-│   ├── config.mjs         # ← EDITA AQUÍ: comunas, mínimos, valor UF, precio
-│   ├── fetch.mjs          # Recolector (corre en TU terminal)
+│   ├── config.mjs         # ← EDITA AQUÍ: comunas, mínimos, valor UF, precio (bloques VENTA / ARRIENDO)
+│   ├── fetch.mjs          # Recolector (corre en TU terminal). Sirve compra Y arriendo.
 │   └── package.json
 ├── data/
-│   ├── datos.sample.json  # Datos de prueba (para ver el dashboard sin correr nada)
-│   └── datos.json         # ← Se genera al correr el scraper (datos reales)
+│   ├── datos.sample.json           # Muestra de compra (para ver el dashboard sin correr nada)
+│   ├── datos.json                  # ← Compra: se genera con  node fetch.mjs
+│   ├── datos-arriendo.sample.json  # Muestra de arriendo
+│   └── datos-arriendo.json         # ← Arriendo: se genera con  OP=arriendo node fetch.mjs
 ├── dashboard/
-│   └── index.html         # Dashboard interactivo
+│   └── index.html         # Dashboard interactivo (toggle Compra/Arriendo)
 └── README.md
 ```
+
+## Compra vs. Arriendo
+
+El **mismo motor** recolecta ambas operaciones; se elige con la variable de entorno `OP`:
+
+| Operación | Comando                      | Precio    | Archivo generado           | Mínimos por defecto        |
+|-----------|------------------------------|-----------|----------------------------|----------------------------|
+| Compra    | `node fetch.mjs`             | UF        | `data/datos.json`          | 3 dorm · 2 baños · 1 estac |
+| Arriendo  | `OP=arriendo node fetch.mjs` | CLP/mes   | `data/datos-arriendo.json` | 2 dorm · 1 baño · 0 estac  |
+
+Cada propiedad lleva un campo `operacion` (`"Compra"` o `"Arriendo"`). El dashboard carga
+los **dos** archivos y los separa con el toggle **Operación** arriba de los filtros. Los
+rangos y etiquetas (Precio UF ↔ Precio $/mes, UF/m² ↔ $/m²) se adaptan solos al modo activo.
+
+Los parámetros de cada operación (precio, mínimos, superficie) viven en bloques separados
+`VENTA` y `ARRIENDO` dentro de `scraper/config.mjs`.
+
+> **Protección anti-borrado:** si una corrida devuelve 0 resultados (típico de un captcha o
+> bloqueo), el scraper **no** sobrescribe el archivo — conserva los datos buenos previos.
 
 ## Paso 1 — Instalar (una sola vez)
 
@@ -42,12 +64,23 @@ npx playwright install chromium
 
 ## Paso 2 — Recolectar datos
 
+**Compra** (venta/usados, precios en UF):
+
 ```bash
 cd /Users/pbenavente/claude-projects/PropiedadCompra/scraper
 node fetch.mjs
 ```
 
-Esto crea `../data/datos.json`. Verás el avance por comuna, por ejemplo:
+**Arriendo** (mensual, precios en pesos CLP):
+
+```bash
+cd /Users/pbenavente/claude-projects/PropiedadCompra/scraper
+OP=arriendo node fetch.mjs
+```
+
+> Prueba rápida (sin recolectar todo): `OP=arriendo MAX_PAGINAS=2 MAX_FICHAS=30 node fetch.mjs`.
+
+Compra crea `../data/datos.json` y arriendo `../data/datos-arriendo.json`. Verás el avance por comuna, por ejemplo:
 
 ```
   Vitacura: 210 propiedades (pág 5)
@@ -60,11 +93,13 @@ Visitando 400 fichas para GPS y atributos…
 
 ### Antes de correr, revisa `scraper/config.mjs`
 
-- **`UF_VALOR`** → pon el valor UF del día (para convertir publicaciones que estén en pesos).
+Los parámetros están en dos bloques: `VENTA` (compra) y `ARRIENDO`. Edita el que corresponda.
+
+- **`UF_VALOR`** (común) → pon el valor UF del día (convierte entre UF y pesos).
 - **`MIN_DORMITORIOS / MIN_BANOS / MIN_ESTACIONAMIENTOS`** → pisos de la búsqueda (van en la URL).
-- **`COMUNAS`** → el `slug` de URL de cada comuna en Portal Inmobiliario.
-- **`PRECIO_UF_MIN / MAX`** → acotar rango si quieres (opcional).
-- **`HEADLESS: false`** → si algo falla, ponlo en `false` para **ver el navegador** trabajando y
+- **`COMUNAS`** (común) → el `slug` de URL de cada comuna en Portal Inmobiliario.
+- **`PRECIO_MIN / MAX`** → rango de precio. En `VENTA` son **UF**; en `ARRIENDO` son **pesos/mes**.
+- **`HEADLESS: false`** (común) → si algo falla, ponlo en `false` para **ver el navegador** trabajando y
   entender qué pasa (aparece una ventana de Chromium).
 - **`VISITAR_FICHAS`** → `true` entra a cada publicación para sacar GPS (más lento pero llena el
   mapa); `false` es más rápido pero con menos coordenadas.
@@ -100,9 +135,15 @@ http://localhost:8777/dashboard/
 
 - **Filtrar en vivo:** comuna, precio UF, dormitorios/baños/estacionamientos mínimos, antigüedad,
   superficie total y útil, y **UF/m² útil** (el indicador de conveniencia).
+- **Valor UF editable:** campo **"Valor UF (CLP)"** en los filtros (por defecto el UF del día). Al
+  cambiarlo, el dashboard recalcula la conversión que muestra bajo cada precio (Compra: UF → pesos;
+  Arriendo: pesos → UF). Se guarda en el navegador; el botón **"UF hoy"** lo restablece.
+- **Favoritos por operación:** los ⭐ se cuentan y muestran separados por **Compra** y **Arriendo** (el
+  contador refleja la operación activa). En la tabla, los favoritos se **fijan arriba**, resaltados con
+  borde dorado y separados del resto por una fila divisoria.
 - **Mapa:** cada punto es una propiedad, coloreada por comuna. Click → popup con datos + link.
 - **Tabla:** click en una fila centra el mapa en esa propiedad. Click en los encabezados ordena.
-- **Resumen:** cantidad de resultados, precio UF promedio/mediana y UF/m² promedio.
+- **Resumen:** cantidad de resultados, precio promedio/mediana y precio/m² promedio (UF o $/mes según modo).
 
 ## Campos que se extraen
 

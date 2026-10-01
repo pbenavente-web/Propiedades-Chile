@@ -128,6 +128,19 @@
   }
   .fav-btn:hover { filter: grayscale(.3) opacity(.9); transform: scale(1.15); }
   .fav-btn.on { filter: none; }
+  /* fila favorita: resaltada y separada visualmente (borde dorado + tinte) */
+  tbody tr.favorito { background: #241f10; box-shadow: inset 3px 0 0 #f0b968; }
+  tbody tr.favorito:hover { background: #2e2814; }
+  tbody tr.favorito.active { background: #2a2b1e; }
+  /* fila separadora entre favoritos y el resto */
+  tr.sep-fav td {
+    background: var(--panel); color: #f0b968; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .05em; padding: 6px 10px; cursor: default;
+    border-bottom: 1px solid var(--line); border-top: 1px solid var(--line);
+  }
+  tr.sep-fav:hover td { background: var(--panel); }
+  /* conversión CLP ↔ UF debajo del precio */
+  .precio-eq { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
   /* rechazado */
   .rej-btn {
     background: none; border: none; cursor: pointer; font-size: 16px; line-height: 1;
@@ -172,13 +185,31 @@
 <body>
 <header>
   <h1>🏢 Buscador de Departamentos</h1>
-  <span class="sub">Compra · Usados · Vitacura · Las Condes · Lo Barnechea · <em>toca una característica para activar/desactivarla</em></span>
+  <span class="sub" id="subtitulo">Compra · Usados · Vitacura · Las Condes · Lo Barnechea · <em>toca una característica para activar/desactivarla</em></span>
   <span id="banner" class="banner-muestra" style="display:none">Datos de MUESTRA</span>
 </header>
 
 <div class="layout">
   <aside>
     <h2>Filtros</h2>
+
+    <div class="fgroup">
+      <label class="title">Operación</label>
+      <div class="seg seg-modo">
+        <label><input type="radio" name="modo" value="Compra" checked /><span>🏷️ Compra</span></label>
+        <label><input type="radio" name="modo" value="Arriendo" /><span>🔑 Arriendo</span></label>
+      </div>
+      <span class="hint" id="modo-count"></span>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Valor UF (CLP)</label>
+      <div class="range">
+        <input type="number" id="valor-uf" min="0" step="1" />
+        <button class="reset" id="uf-hoy" style="width:auto;margin-top:0;padding:7px 10px;white-space:nowrap">UF hoy</button>
+      </div>
+      <span class="hint" id="uf-hint">Editable. Convierte UF ↔ pesos en el dashboard.</span>
+    </div>
 
     <div class="fgroup">
       <label class="title">Buscar palabra</label>
@@ -199,7 +230,7 @@
     </div>
 
     <div class="fgroup">
-      <label class="title">Precio (UF)</label>
+      <label class="title" id="lbl-precio">Precio (UF)</label>
       <div class="range">
         <input type="number" id="precio-min" placeholder="mín" />
         <span>–</span>
@@ -242,7 +273,7 @@
     </div>
 
     <div class="fgroup">
-      <label class="title">UF / m² útil</label>
+      <label class="title" id="lbl-m2">UF / m² útil</label>
       <div class="range">
         <input type="number" id="ufm2-min" placeholder="mín" />
         <span>–</span>
@@ -291,6 +322,7 @@
         <span>⭐ Ver solo favoritos</span>
         <span class="cnt" id="fav-count">0</span>
       </label>
+      <span class="hint" id="fav-breakdown"></span>
     </div>
 
     <div class="fgroup">
@@ -305,10 +337,10 @@
     <div class="fgroup">
       <label class="title">Ordenar por</label>
       <select id="orden">
-        <option value="precio_uf-asc">Precio UF ↑</option>
-        <option value="precio_uf-desc">Precio UF ↓</option>
-        <option value="uf_m2_util-asc">UF/m² ↑ (más conveniente)</option>
-        <option value="uf_m2_util-desc">UF/m² ↓</option>
+        <option value="precio-asc" id="opt-precio-asc">Precio UF ↑</option>
+        <option value="precio-desc" id="opt-precio-desc">Precio UF ↓</option>
+        <option value="precioM2-asc" id="opt-m2-asc">UF/m² ↑ (más conveniente)</option>
+        <option value="precioM2-desc" id="opt-m2-desc">UF/m² ↓</option>
         <option value="superficie_util-desc">Superficie útil ↓</option>
         <option value="antiguedad-asc">Más nuevo</option>
       </select>
@@ -330,8 +362,8 @@
             <th data-sort="comuna">Comuna</th>
             <th data-sort="superficie_util" class="num">Útil m²</th>
             <th data-sort="superficie_total" class="num">Total m²</th>
-            <th data-sort="precio_uf" class="num">Precio UF</th>
-            <th data-sort="uf_m2_util" class="num">UF/m²</th>
+            <th data-sort="precio" class="num" id="th-precio">Precio UF</th>
+            <th data-sort="precioM2" class="num" id="th-m2">UF/m²</th>
             <th data-sort="dormitorios" class="num">Dorm</th>
             <th data-sort="banos" class="num">Baño</th>
             <th data-sort="estacionamientos" class="num">Estac</th>
@@ -356,9 +388,39 @@
 const COMUNA_COLOR = { "Vitacura": "#4f8cff", "Las Condes": "#22c55e", "Lo Barnechea": "#f59e0b" };
 let DATA = [], VIEW = [], META = {}, map, markerLayer, activeId = null;
 let KEYWORD = ""; // keyword de búsqueda activa (para resaltar en el render)
+let MODO = "Compra"; // operación activa: "Compra" (UF) | "Arriendo" (CLP/mes)
+let HAY_ARRIENDO = false; // ¿se cargaron datos de arriendo? (habilita el toggle)
+const UF_HOY = 41065; // valor UF del día (fijado); el usuario puede cambiarlo en el dashboard.
+let VALOR_UF = UF_HOY; // valor UF activo (editable, persistido en localStorage).
 
 const fmt = (n) => n == null ? "—" : n.toLocaleString("es-CL");
 const el = (id) => document.getElementById(id);
+
+// ── Helpers dependientes del modo (Compra = UF · Arriendo = CLP/mes) ───────
+// precioDe/precioM2De devuelven el valor correcto según la operación activa.
+const esArriendoModo = () => MODO === "Arriendo";
+const precioDe = (p) => (esArriendoModo() ? p.precio_clp : p.precio_uf);
+const precioM2De = (p) => (esArriendoModo() ? p.clp_m2_util : p.uf_m2_util);
+// Unidades para etiquetas: UF (compra) vs $/mes y $/m² (arriendo).
+const unidadPrecio = () => (esArriendoModo() ? "$/mes" : "UF");
+const unidadM2 = () => (esArriendoModo() ? "$/m²" : "UF/m²");
+// Formato de precio con su símbolo según modo. Arriendo: "$1.500.000"; Compra: "6.290".
+const fmtPrecio = (p) => { const v = precioDe(p); if (v == null) return "—"; return esArriendoModo() ? "$" + fmt(v) : fmt(v); };
+const fmtM2 = (p) => { const v = precioM2De(p); if (v == null) return "—"; return esArriendoModo() ? "$" + fmt(v) : fmt(v); };
+// Equivalencia según VALOR_UF: Compra (UF) → "≈ $pesos"; Arriendo (CLP) → "≈ N UF".
+function equivPrecio(p) {
+  if (!(VALOR_UF > 0)) return "";
+  if (esArriendoModo()) {
+    const clp = p.precio_clp;
+    if (clp == null) return "";
+    return "≈ " + fmt(Math.round(clp / VALOR_UF)) + " UF";
+  }
+  const uf = p.precio_uf;
+  if (uf == null) return "";
+  return "≈ $" + fmt(Math.round(uf * VALOR_UF));
+}
+// Subconjunto de DATA de la operación activa (para poblar filtros y vistas).
+const dataModo = () => DATA.filter((p) => (p.operacion || "Compra") === MODO);
 
 // ── Estado persistente (localStorage) ─────────────────────────────────────
 // FAVS: Set de ids marcados como favorito.
@@ -367,6 +429,7 @@ const el = (id) => document.getElementById(id);
 const LS_FAV = "propiedad_favoritos_v1";
 const LS_REJ = "propiedad_rechazados_v1";
 const LS_OVR = "propiedad_overrides_v1";
+const LS_UF  = "propiedad_valor_uf_v1";
 const CARACS_EDIT = [
   { key: "jardin",  label: "🌳 Jardín" },
   { key: "terraza", label: "🌤️ Terraza" },
@@ -383,7 +446,10 @@ function loadState() {
   try { FAVS = new Set(JSON.parse(localStorage.getItem(LS_FAV) || "[]")); } catch { FAVS = new Set(); }
   try { REJS = new Set(JSON.parse(localStorage.getItem(LS_REJ) || "[]")); } catch { REJS = new Set(); }
   try { OVERRIDES = JSON.parse(localStorage.getItem(LS_OVR) || "{}"); } catch { OVERRIDES = {}; }
+  const uf = Number(localStorage.getItem(LS_UF));
+  VALOR_UF = uf > 0 ? uf : UF_HOY;
 }
+function saveValorUF() { localStorage.setItem(LS_UF, String(VALOR_UF)); }
 function saveFavs() { localStorage.setItem(LS_FAV, JSON.stringify([...FAVS])); }
 function saveRejs() { localStorage.setItem(LS_REJ, JSON.stringify([...REJS])); }
 function saveOverrides() { localStorage.setItem(LS_OVR, JSON.stringify(OVERRIDES)); }
@@ -393,7 +459,22 @@ function toggleFav(id) {
   if (FAVS.has(id)) FAVS.delete(id); else FAVS.add(id);
   saveFavs(); updateFavCount();
 }
-function updateFavCount() { el("fav-count").textContent = FAVS.size; }
+// Cuenta favoritos separados por operación (compra vs arriendo).
+function favCountPorModo() {
+  let compra = 0, arriendo = 0;
+  for (const p of DATA) {
+    if (!FAVS.has(p.id)) continue;
+    if ((p.operacion || "Compra") === "Arriendo") arriendo++; else compra++;
+  }
+  return { Compra: compra, Arriendo: arriendo };
+}
+function updateFavCount() {
+  const n = favCountPorModo();
+  // El contador junto al toggle refleja los favoritos de la operación ACTIVA.
+  el("fav-count").textContent = n[MODO] ?? 0;
+  const bd = el("fav-breakdown");
+  if (bd) bd.textContent = `🏷️ ${n.Compra} en compra · 🔑 ${n.Arriendo} en arriendo`;
+}
 
 function isRej(id) { return REJS.has(id); }
 function toggleRej(id) {
@@ -448,23 +529,53 @@ function barriosDeComuna(comuna) {
   return [...new Set(DATA.filter((p) => p.comuna === comuna && p.barrio).map((p) => p.barrio))].sort();
 }
 
-async function loadData() {
-  // Intenta datos reales; si no existen, cae a la muestra.
-  for (const path of ["../data/datos.json", "../data/datos.sample.json"]) {
+// Devuelve el primer archivo disponible de la lista (datos reales o, si no, la muestra).
+async function fetchFirst(paths) {
+  for (const path of paths) {
     try {
       const res = await fetch(path, { cache: "no-store" });
       if (!res.ok) continue;
-      const json = await res.json();
-      if (json?.meta?.muestra) el("banner").style.display = "inline-block";
-      META = json.meta || {};
-      return json.propiedades || [];
+      return { json: await res.json(), path };
     } catch (e) { /* siguiente */ }
   }
-  return [];
+  return null;
+}
+
+async function loadData() {
+  // Carga COMPRA (datos.json) y ARRIENDO (datos-arriendo.json) y los combina en un solo
+  // arreglo. Cada propiedad lleva su campo `operacion`; el toggle filtra por él.
+  const compra   = await fetchFirst(["../data/datos.json", "../data/datos.sample.json"]);
+  const arriendo = await fetchFirst(["../data/datos-arriendo.json", "../data/datos-arriendo.sample.json"]);
+
+  const barrios = {};
+  const props = [];
+  META = {};
+
+  for (const src of [compra, arriendo]) {
+    if (!src) continue;
+    const m = src.json.meta || {};
+    const op = m.operacion || (/arriendo/i.test(src.path) ? "Arriendo" : "Compra");
+    // Marca si esta operación viene de datos de muestra (para el banner, por modo).
+    if (m.muestra || /\.sample\.json$/.test(src.path)) m.muestra = true;
+    // Combina los barrios por comuna de ambas operaciones.
+    if (m.barrios_por_comuna) {
+      for (const [c, arr] of Object.entries(m.barrios_por_comuna)) {
+        barrios[c] = [...new Set([...(barrios[c] || []), ...arr])].sort();
+      }
+    }
+    META[op] = m;                              // metadata por operación
+    for (const p of (src.json.propiedades || [])) {
+      if (!p.operacion) p.operacion = op;      // clasifica por si el dato no lo trae
+      props.push(p);
+    }
+  }
+  META.barrios_por_comuna = barrios;           // usado por barriosDeComuna()
+  HAY_ARRIENDO = props.some((p) => (p.operacion || "Compra") === "Arriendo");
+  return props;
 }
 
 function buildComunaFilters() {
-  const comunas = [...new Set(DATA.map((p) => p.comuna).filter(Boolean))].sort();
+  const comunas = [...new Set(dataModo().map((p) => p.comuna).filter(Boolean))].sort();
   const wrap = el("f-comunas");
   wrap.innerHTML = "";
   comunas.forEach((c) => {
@@ -477,8 +588,9 @@ function buildComunaFilters() {
 }
 
 function buildOrientacionFilter() {
-  const vals = [...new Set(DATA.map((p) => p.orientacion).filter(Boolean))].sort();
+  const vals = [...new Set(dataModo().map((p) => p.orientacion).filter(Boolean))].sort();
   const sel = el("orientacion");
+  sel.innerHTML = `<option value="">Cualquiera</option>`; // limpiar antes (se reconstruye por modo)
   vals.forEach((v) => {
     const opt = document.createElement("option");
     opt.value = v; opt.textContent = v;
@@ -493,14 +605,15 @@ function buildBarrioFilter() {
   const sel = el("barrio");
   const prev = sel.value;
   const comunas = [...document.querySelectorAll("#f-comunas input:checked")].map((i) => i.value);
-  const activas = comunas.length ? comunas : [...new Set(DATA.map((p) => p.comuna).filter(Boolean))];
+  const dm = dataModo();
+  const activas = comunas.length ? comunas : [...new Set(dm.map((p) => p.comuna).filter(Boolean))];
   sel.innerHTML = `<option value="">Todos los sectores</option>`;
   let haySin = false;
   activas.sort().forEach((comuna) => {
     const barrios = [...new Set(
-      DATA.filter((p) => p.comuna === comuna && p.barrio).map((p) => p.barrio)
+      dm.filter((p) => p.comuna === comuna && p.barrio).map((p) => p.barrio)
     )].sort();
-    if (DATA.some((p) => p.comuna === comuna && !p.barrio)) haySin = true;
+    if (dm.some((p) => p.comuna === comuna && !p.barrio)) haySin = true;
     if (!barrios.length) return;
     const og = document.createElement("optgroup");
     og.label = comuna;
@@ -557,6 +670,8 @@ function apply() {
   const f = readFilters();
   KEYWORD = f.q;
   VIEW = DATA.filter((p) => {
+    // Solo la operación activa (Compra / Arriendo).
+    if ((p.operacion || "Compra") !== MODO) return false;
     if (f.q) {
       const hay = ((p.titulo || "") + " " + (p.descripcion || "")).toLowerCase();
       if (!hay.includes(f.q)) return false;
@@ -567,11 +682,11 @@ function apply() {
     if (!meetsMin(p.dormitorios, f.minDorm)) return false;
     if (!meetsMin(p.banos, f.minBanos)) return false;
     if (!meetsMin(p.estacionamientos, f.minEstac)) return false;
-    if (!inRange(p.precio_uf, f.precioMin, f.precioMax)) return false;
+    if (!inRange(precioDe(p), f.precioMin, f.precioMax)) return false;
     if (!inRange(p.antiguedad, f.antMin, f.antMax)) return false;
     if (!inRange(p.superficie_total, f.stotMin, f.stotMax)) return false;
     if (!inRange(p.superficie_util, f.sutilMin, f.sutilMax)) return false;
-    if (!inRange(p.uf_m2_util, f.ufm2Min, f.ufm2Max)) return false;
+    if (!inRange(precioM2De(p), f.ufm2Min, f.ufm2Max)) return false;
     if (!inRange(p.gastos_comunes, f.gcMin, f.gcMax)) return false;
     if (!inRange(p.piso, f.pisoMin, f.pisoMax)) return false;
     if (f.orientacion && p.orientacion !== f.orientacion) return false;
@@ -586,8 +701,16 @@ function apply() {
   });
 
   const [key, dir] = f.orden.split("-");
+  // "precio"/"precioM2" son claves dependientes del modo; el resto son campos directos.
+  const valorOrden = (p) =>
+    key === "precio" ? precioDe(p) : key === "precioM2" ? precioM2De(p) : p[key];
   VIEW.sort((a, b) => {
-    const av = a[key] ?? Infinity, bv = b[key] ?? Infinity;
+    // Favoritos primero (separados arriba), salvo que ya estemos viendo "solo favoritos".
+    if (!f.favoritos) {
+      const fa = isFav(a.id) ? 0 : 1, fb = isFav(b.id) ? 0 : 1;
+      if (fa !== fb) return fa - fb;
+    }
+    const av = valorOrden(a) ?? Infinity, bv = valorOrden(b) ?? Infinity;
     return dir === "asc" ? av - bv : bv - av;
   });
 
@@ -604,14 +727,17 @@ function median(arr) {
 }
 
 function renderSummary() {
-  const precios = VIEW.map((p) => p.precio_uf).filter((n) => n != null);
-  const ufm2 = VIEW.map((p) => p.uf_m2_util).filter((n) => n != null);
+  const precios = VIEW.map((p) => precioDe(p)).filter((n) => n != null);
+  const m2 = VIEW.map((p) => precioM2De(p)).filter((n) => n != null);
   const avg = (a) => a.length ? Math.round(a.reduce((s, n) => s + n, 0) / a.length) : null;
+  const sig = esArriendoModo() ? "$" : "";
+  const money = (n) => (n == null ? "—" : sig + fmt(n));
+  const uP = unidadPrecio(), uM = unidadM2();
   el("summary").innerHTML = `
     <div class="stat"><div class="k">Resultados</div><div class="v">${VIEW.length}</div></div>
-    <div class="stat"><div class="k">Precio UF prom.</div><div class="v">${fmt(avg(precios))}</div></div>
-    <div class="stat"><div class="k">Precio UF mediana</div><div class="v">${fmt(median(precios))}</div></div>
-    <div class="stat"><div class="k">UF/m² prom.</div><div class="v">${fmt(avg(ufm2))}</div></div>
+    <div class="stat"><div class="k">Precio ${uP} prom.</div><div class="v">${money(avg(precios))}</div></div>
+    <div class="stat"><div class="k">Precio ${uP} mediana</div><div class="v">${money(median(precios))}</div></div>
+    <div class="stat"><div class="k">${uM} prom.</div><div class="v">${money(avg(m2))}</div></div>
   `;
 }
 
@@ -725,11 +851,25 @@ function renderTable() {
   const tb = el("tbody");
   tb.innerHTML = "";
   el("empty").style.display = VIEW.length ? "none" : "block";
+  // ¿separar visualmente favoritos del resto? Solo si hay de ambos y no estamos en "solo favoritos".
+  const soloFavs = el("chk-favoritos").checked;
+  const totFav = VIEW.filter((p) => isFav(p.id)).length;
+  const separar = !soloFavs && totFav > 0 && totFav < VIEW.length;
+  let sepPuesto = false;
   VIEW.forEach((p) => {
+    const favOn = isFav(p.id);
+    // Inserta una fila separadora al pasar del bloque de favoritos al resto.
+    if (separar && !favOn && !sepPuesto) {
+      const sep = document.createElement("tr");
+      sep.className = "sep-fav";
+      sep.innerHTML = `<td colspan="17">— Resto de ${MODO.toLowerCase()} (no favoritos) —</td>`;
+      tb.appendChild(sep);
+      sepPuesto = true;
+    }
     const tr = document.createElement("tr");
     tr.dataset.id = p.id;
-    const favOn = isFav(p.id);
     const rejOn = isRej(p.id);
+    if (favOn) tr.classList.add("favorito");
     if (rejOn) tr.classList.add("rejected");
     tr.innerHTML = `
       <td style="white-space:nowrap">
@@ -741,8 +881,8 @@ function renderTable() {
       <td class="comuna-cell">${comunaCellHtml(p)}</td>
       <td class="num">${fmt(p.superficie_util)}</td>
       <td class="num">${fmt(p.superficie_total)}</td>
-      <td class="num">${fmt(p.precio_uf)}</td>
-      <td class="num">${fmt(p.uf_m2_util)}</td>
+      <td class="num">${fmtPrecio(p)}${(() => { const e = equivPrecio(p); return e ? `<span class="precio-eq">${e}</span>` : ""; })()}</td>
+      <td class="num">${fmtM2(p)}</td>
       <td class="num">${fmt(p.dormitorios)}</td>
       <td class="num">${fmt(p.banos)}</td>
       <td class="num">${fmt(p.estacionamientos)}</td>
@@ -770,12 +910,13 @@ function renderTable() {
 
 // Marca/desmarca favorito desde la fila, actualizando solo el botón (sin re-render completo).
 function toggleFavRow(id, btn) {
-  toggleFav(id);
+  toggleFav(id);           // alterna + actualiza el contador por operación
   const on = isFav(id);
   btn.classList.toggle("on", on);
   btn.textContent = on ? "⭐" : "☆";
-  // si el filtro "solo favoritos" está activo y se quitó, refrescar la vista
-  if (el("chk-favoritos").checked && !on) apply();
+  // Re-aplicar para que el favorito salte al bloque de arriba (separado) y se
+  // actualice el resaltado, el separador y el mapa.
+  apply();
 }
 
 // Marca/desmarca rechazado desde la fila. Un rechazado se oculta salvo que
@@ -823,10 +964,10 @@ function renderMarkers() {
     m.bindPopup(`
       ${p.imagen ? `<img src="${esc(p.imagen)}" style="width:100%;max-width:230px;height:120px;object-fit:cover;border-radius:6px;margin-bottom:6px" onerror="this.style.display='none'" />` : ""}
       <b>${esc(p.titulo ?? "Departamento")}</b><br>
-      ${esc(p.comuna ?? "")}${p.barrio ? " · " + esc(p.barrio) : ""} · <b>${fmt(p.precio_uf)} UF</b><br>
+      ${esc(p.comuna ?? "")}${p.barrio ? " · " + esc(p.barrio) : ""} · <b>${esArriendoModo() ? fmtPrecio(p) + "/mes" : fmtPrecio(p) + " UF"}</b><br>
       ${fmt(p.dormitorios)}D / ${fmt(p.banos)}B / ${fmt(p.estacionamientos)}E ·
       ${fmt(p.superficie_util)} m² útil<br>
-      ${p.uf_m2_util != null ? `${fmt(p.uf_m2_util)} UF/m²<br>` : ""}
+      ${precioM2De(p) != null ? `${fmtM2(p)} ${esArriendoModo() ? "/m²" : "UF/m²"}<br>` : ""}
       ${extras.length ? extras.join(" · ") + "<br>" : ""}
       ${flags.length ? `<span style="color:#166534">${esc(flags.join(" · "))}</span><br>` : ""}
       ${p.url ? `<a href="${p.url}" target="_blank" rel="noopener">Ver publicación ↗</a>` : ""}
@@ -861,12 +1002,76 @@ function initMap() {
   markerLayer = L.layerGroup().addTo(map);
 }
 
+// Actualiza TODAS las etiquetas que dependen de la moneda del modo activo.
+function applyModeLabels() {
+  const uP = unidadPrecio(), uM = unidadM2();
+  el("subtitulo").innerHTML = `${MODO} · ${MODO === "Compra" ? "Usados" : "Mensual"} · Vitacura · Las Condes · Lo Barnechea · <em>toca una característica para activar/desactivarla</em>`;
+  el("lbl-precio").textContent = `Precio (${uP})`;
+  el("lbl-m2").textContent = `${uM} útil`;
+  el("th-precio").textContent = `Precio ${uP}`;
+  el("th-m2").textContent = uM;
+  el("opt-precio-asc").textContent = `Precio ${uP} ↑`;
+  el("opt-precio-desc").textContent = `Precio ${uP} ↓`;
+  el("opt-m2-asc").textContent = `${uM} ↑ (más conveniente)`;
+  el("opt-m2-desc").textContent = `${uM} ↓`;
+  // Contador por operación.
+  const nC = DATA.filter((p) => (p.operacion || "Compra") === "Compra").length;
+  const nA = DATA.filter((p) => (p.operacion || "Compra") === "Arriendo").length;
+  el("modo-count").textContent = `${nC} en compra · ${nA} en arriendo`;
+  // Banner "Datos de MUESTRA" solo si la operación ACTIVA usa datos de muestra.
+  el("banner").style.display = META?.[MODO]?.muestra ? "inline-block" : "none";
+  // El contador de favoritos refleja la operación activa.
+  updateFavCount();
+}
+
+// Mensaje del campo UF: avisa si se está usando un valor distinto al del día.
+function updateUfHint() {
+  const h = el("uf-hint");
+  if (!h) return;
+  h.textContent = VALOR_UF === UF_HOY
+    ? `Hoy: $${fmt(UF_HOY)}. Editable para convertir UF ↔ pesos.`
+    : `Usando $${fmt(VALOR_UF)} (hoy: $${fmt(UF_HOY)}).`;
+}
+
+// Cambia la operación activa: ajusta etiquetas, mínimos por defecto, limpia los
+// rangos de precio (las unidades difieren) y reconstruye los filtros dependientes.
+function setModo(nuevo) {
+  if (nuevo === MODO) return;
+  MODO = nuevo;
+  applyModeLabels();
+  // Mínimos por defecto según operación (compra más exigente, arriendo flexible).
+  if (MODO === "Arriendo") { el("min-dorm").value = 2; el("min-banos").value = 1; el("min-estac").value = 0; }
+  else { el("min-dorm").value = 3; el("min-banos").value = 2; el("min-estac").value = 1; }
+  // Las unidades de precio y $/m² cambian → limpiar esos rangos para no filtrar con topes de la otra moneda.
+  ["precio-min","precio-max","ufm2-min","ufm2-max"].forEach((id) => (el(id).value = ""));
+  // Reconstruir filtros acotados a la nueva operación.
+  buildComunaFilters();
+  buildOrientacionFilter();
+  buildBarrioFilter();
+  el("barrio").value = "";
+  el("orden").value = "precio-asc";
+  apply();
+}
+
 function wireControls() {
+  // Toggle de operación (Compra / Arriendo).
+  document.querySelectorAll('input[name="modo"]').forEach((r) =>
+    r.addEventListener("change", () => { if (r.checked) setModo(r.value); }));
   ["buscar","precio-min","precio-max","min-dorm","min-banos","min-estac","ant-min","ant-max",
    "stot-min","stot-max","sutil-min","sutil-max","ufm2-min","ufm2-max",
    "gc-min","gc-max","piso-min","piso-max"].forEach((id) =>
     el(id).addEventListener("input", apply));
   ["orientacion","orden","barrio"].forEach((id) => el(id).addEventListener("change", apply));
+  // Valor UF editable: al cambiarlo se recalcula la conversión mostrada.
+  el("valor-uf").addEventListener("input", () => {
+    const v = Number(el("valor-uf").value);
+    VALOR_UF = v > 0 ? v : UF_HOY;
+    saveValorUF(); updateUfHint(); renderSummary(); renderTable();
+  });
+  el("uf-hoy").addEventListener("click", () => {
+    VALOR_UF = UF_HOY; el("valor-uf").value = UF_HOY;
+    saveValorUF(); updateUfHint(); renderSummary(); renderTable();
+  });
   ["chk-jardin","chk-duplex","chk-bodega","chk-favoritos","chk-ver-rechazados"].forEach((id) => el(id).addEventListener("change", apply));
   el("reset").addEventListener("click", () => {
     el("buscar").value = "";
@@ -874,11 +1079,12 @@ function wireControls() {
     ["precio-min","precio-max","ant-min","ant-max","stot-min","stot-max",
      "sutil-min","sutil-max","ufm2-min","ufm2-max","gc-min","gc-max",
      "piso-min","piso-max"].forEach((id) => (el(id).value = ""));
-    el("min-dorm").value = 3; el("min-banos").value = 2; el("min-estac").value = 1;
+    if (MODO === "Arriendo") { el("min-dorm").value = 2; el("min-banos").value = 1; el("min-estac").value = 0; }
+    else { el("min-dorm").value = 3; el("min-banos").value = 2; el("min-estac").value = 1; }
     el("orientacion").value = "";
     buildBarrioFilter(); el("barrio").value = "";
     ["chk-jardin","chk-duplex","chk-bodega","chk-favoritos","chk-ver-rechazados"].forEach((id) => (el(id).checked = false));
-    el("orden").value = "precio_uf-asc";
+    el("orden").value = "precio-asc";
     apply();
   });
   document.querySelectorAll("thead th[data-sort]").forEach((th) => {
@@ -897,6 +1103,12 @@ function wireControls() {
   loadState();
   initMap();
   DATA = await loadData();
+  el("valor-uf").value = VALOR_UF;
+  updateUfHint();
+  applyModeLabels();
+  // Si no hay datos de arriendo, deshabilita ese toggle (y deja Compra activo).
+  const radioArr = document.querySelector('input[name="modo"][value="Arriendo"]');
+  if (!HAY_ARRIENDO && radioArr) { radioArr.disabled = true; radioArr.closest("label").style.opacity = ".5"; radioArr.closest("label").title = "Aún no hay datos de arriendo (corre el scraper con OP=arriendo)"; }
   buildComunaFilters();
   buildOrientacionFilter();
   buildBarrioFilter();
