@@ -15,18 +15,11 @@ export const OPERACION = process.env.OP === "arriendo" ? "arriendo" : "venta";
 
 // ── Parámetros comunes a ambas operaciones ─────────────────────────────────
 const COMUN = {
-  // Comunas a buscar. El "slug" es el segmento de URL de Portal Inmobiliario.
+  // Las comunas a buscar (COMUNAS) y las válidas (COMUNAS_VALIDAS) viven en cada bloque
+  // de operación (VENTA / ARRIENDO), porque el foco puede diferir: compra barre las 3
+  // comunas, arriendo se concentra solo en Vitacura.
   // La URL base se arma como:
   //   https://www.portalinmobiliario.com/<venta|arriendo>/departamento/<slug>/<FILTROS>
-  COMUNAS: [
-    { nombre: "Vitacura",     slug: "vitacura-metropolitana" },
-    { nombre: "Las Condes",   slug: "las-condes-metropolitana" },
-    { nombre: "Lo Barnechea", slug: "lo-barnechea-metropolitana" },
-  ],
-
-  // Comunas válidas: se descarta cualquier propiedad cuya comuna no esté aquí (filtra basura
-  // tipo "Punta Cana" mal categorizada). Debe coincidir con los nombres de COMUNAS.
-  COMUNAS_VALIDAS: ["Vitacura", "Las Condes", "Lo Barnechea"],
 
   // Valor UF. En venta convierte publicaciones en pesos → UF; en arriendo convierte
   // publicaciones en UF → pesos (algunos arriendos se publican en UF).
@@ -55,6 +48,13 @@ const COMUN = {
 // ── Parámetros SOLO de venta (compra) ──────────────────────────────────────
 const VENTA = {
   OPERACION: "venta",
+  // Compra barre las tres comunas del sector oriente.
+  COMUNAS: [
+    { nombre: "Vitacura",     slug: "vitacura-metropolitana" },
+    { nombre: "Las Condes",   slug: "las-condes-metropolitana" },
+    { nombre: "Lo Barnechea", slug: "lo-barnechea-metropolitana" },
+  ],
+  COMUNAS_VALIDAS: ["Vitacura", "Las Condes", "Lo Barnechea"],
   // Filtros mínimos "duros" que van en la URL (piso). El refinamiento fino se hace en el dashboard.
   MIN_DORMITORIOS: 3,
   MIN_BANOS: 2,
@@ -73,6 +73,11 @@ const VENTA = {
 // ── Parámetros SOLO de arriendo ────────────────────────────────────────────
 const ARRIENDO = {
   OPERACION: "arriendo",
+  // Arriendo se concentra EXCLUSIVAMENTE en Vitacura.
+  COMUNAS: [
+    { nombre: "Vitacura", slug: "vitacura-metropolitana" },
+  ],
+  COMUNAS_VALIDAS: ["Vitacura"],
   // Mínimos más flexibles: captura más arriendos (2+ dorm, 1+ baño, sin exigir estacionamiento).
   MIN_DORMITORIOS: 2,
   MIN_BANOS: 1,

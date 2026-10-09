@@ -511,7 +511,12 @@ async function main() {
   });
 
   const etiquetaOp = OPERACION === "arriendo" ? "en ARRIENDO" : "usados (COMPRA)";
-  console.log(`Buscando departamentos ${etiquetaOp} en Vitacura, Las Condes y Lo Barnechea…\n`);
+  const nombresComunas = CONFIG.COMUNAS.map((c) => c.nombre);
+  const etiquetaComunas =
+    nombresComunas.length > 1
+      ? nombresComunas.slice(0, -1).join(", ") + " y " + nombresComunas.at(-1)
+      : nombresComunas[0];
+  console.log(`Buscando departamentos ${etiquetaOp} en ${etiquetaComunas}…\n`);
   const crudos = [];
   const totalesPorComuna = {};
   for (const comuna of CONFIG.COMUNAS) {
