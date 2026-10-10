@@ -312,6 +312,7 @@
         <label><input type="checkbox" id="chk-jardin" /><span>🌳 Jardín</span></label>
         <label><input type="checkbox" id="chk-duplex" /><span>🏠 Dúplex</span></label>
         <label><input type="checkbox" id="chk-bodega" /><span>📦 Bodega</span></label>
+        <label><input type="checkbox" id="chk-amoblado" /><span>🛋️ Amoblado</span></label>
       </div>
     </div>
 
@@ -436,6 +437,7 @@ const CARACS_EDIT = [
   { key: "duplex",  label: "🏠 Dúplex" },
   { key: "bodega",  label: "📦 Bodega" },
   { key: "piscina", label: "🏊 Piscina" },
+  { key: "amoblado", label: "🛋️ Amoblado" },
 ];
 
 let FAVS = new Set();
@@ -652,6 +654,7 @@ function readFilters() {
     jardin: el("chk-jardin").checked,
     duplex: el("chk-duplex").checked,
     bodega: el("chk-bodega").checked,
+    amoblado: el("chk-amoblado").checked,
     favoritos: el("chk-favoritos").checked,
     verRechazados: el("chk-ver-rechazados").checked,
     orden: el("orden").value,
@@ -694,6 +697,7 @@ function apply() {
     if (f.jardin && effCarac(p, "jardin") !== true) return false;
     if (f.duplex && effCarac(p, "duplex") !== true) return false;
     if (f.bodega && effCarac(p, "bodega") !== true) return false;
+    if (f.amoblado && effCarac(p, "amoblado") !== true) return false;
     if (f.favoritos && !isFav(p.id)) return false;
     // rechazados: ocultos por defecto; solo se ven si "Mostrar rechazados" está activo
     if (isRej(p.id) && !f.verRechazados) return false;
@@ -791,7 +795,7 @@ function caracHtml(p) {
   });
   // características de texto libre que no correspondan a las editables (no clicables)
   for (const t of (p.caracteristicas || [])) {
-    if (/jard|d[uú]plex|bodega|piscina|terraza/i.test(t)) continue;
+    if (/jard|d[uú]plex|bodega|piscina|terraza|amoblad/i.test(t)) continue;
     chips.push(`<span class="tag">${esc(t)}</span>`);
   }
   return `<br><span style="opacity:.95">${chips.join("")}</span>`;
@@ -944,7 +948,7 @@ function toggleCaracTag(p, tagEl) {
   if (tr) tr.children[2].innerHTML = tituloCellHtml(p);
   // si hay filtro de característica activo, puede cambiar qué filas se muestran
   const f = readFilters();
-  if ((f.jardin && key === "jardin") || (f.duplex && key === "duplex") || (f.bodega && key === "bodega")) apply();
+  if ((f.jardin && key === "jardin") || (f.duplex && key === "duplex") || (f.bodega && key === "bodega") || (f.amoblado && key === "amoblado")) apply();
 }
 
 function renderMarkers() {
@@ -1072,7 +1076,7 @@ function wireControls() {
     VALOR_UF = UF_HOY; el("valor-uf").value = UF_HOY;
     saveValorUF(); updateUfHint(); renderSummary(); renderTable();
   });
-  ["chk-jardin","chk-duplex","chk-bodega","chk-favoritos","chk-ver-rechazados"].forEach((id) => el(id).addEventListener("change", apply));
+  ["chk-jardin","chk-duplex","chk-bodega","chk-amoblado","chk-favoritos","chk-ver-rechazados"].forEach((id) => el(id).addEventListener("change", apply));
   el("reset").addEventListener("click", () => {
     el("buscar").value = "";
     document.querySelectorAll("#f-comunas input").forEach((i) => (i.checked = true));
@@ -1083,7 +1087,7 @@ function wireControls() {
     else { el("min-dorm").value = 3; el("min-banos").value = 2; el("min-estac").value = 1; }
     el("orientacion").value = "";
     buildBarrioFilter(); el("barrio").value = "";
-    ["chk-jardin","chk-duplex","chk-bodega","chk-favoritos","chk-ver-rechazados"].forEach((id) => (el(id).checked = false));
+    ["chk-jardin","chk-duplex","chk-bodega","chk-amoblado","chk-favoritos","chk-ver-rechazados"].forEach((id) => (el(id).checked = false));
     el("orden").value = "precio-asc";
     apply();
   });

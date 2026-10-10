@@ -268,6 +268,7 @@ function normalize(raw, comunaNombre, detalle = {}) {
     gastos_comunes: detalle.gastos_comunes ?? null,
     jardin,
     duplex,
+    amoblado: detalle.amoblado ?? null,
     titulo: raw.title,
     caracteristicas: destacadas,
     publicante: raw.seller ? raw.seller.replace(/&amp;/g, "&") : (detalle.publicante ?? null),
@@ -291,7 +292,7 @@ async function scrapeFicha(page, url) {
     } catch { /* si no aparece, seguimos igual y leemos lo que haya */ }
     await page.waitForTimeout(400); // pequeño colchón para que terminen de pintar specs/desc
     const res = await page.evaluate(() => {
-      const res = { lat: null, lng: null, antiguedad: null, superficie_util: null, superficie_total: null, estacionamientos: null, imagen: null, bodega: null, orientacion: null, orientacion_raw: null, piso: null, gastos_comunes: null, jardin: null, duplex: null, destacadas: [], descripcion: null, barrio_breadcrumb: null };
+      const res = { lat: null, lng: null, antiguedad: null, superficie_util: null, superficie_total: null, estacionamientos: null, imagen: null, bodega: null, orientacion: null, orientacion_raw: null, piso: null, gastos_comunes: null, jardin: null, duplex: null, amoblado: null, destacadas: [], descripcion: null, barrio_breadcrumb: null };
       // GPS desde mapa estático de Google
       const mapImg = document.querySelector('img[src*="staticmap"], img[src*="maps.google"]');
       if (mapImg) {
@@ -329,6 +330,11 @@ async function scrapeFicha(page, url) {
         else if (/piso de la unidad|n[uú]mero de piso|piso n/.test(txt) && val != null) res.piso = val;
         else if (/gastos? comunes/.test(txt) && val != null) res.gastos_comunes = val; // CLP
         else if (/superficie (de )?jard[ií]n/.test(txt)) res.jardin = (val != null ? val > 0 : true);
+        else if (/amoblad[oa]/.test(txt)) {
+          // Fila oficial "Amoblado: Sí / No" de la tabla de especificaciones.
+          if (/\bno\b/.test(txt)) res.amoblado = false;
+          else if (/\bs[ií]\b/.test(txt)) res.amoblado = true;
+        }
       });
 
       // Amenidades detectadas en la descripción libre (texto del anuncio).
@@ -360,6 +366,12 @@ async function scrapeFicha(page, url) {
           [/sala (de )?(multiuso|eventos|juegos)/, "Sala multiuso"],
         ];
         for (const [re, etiqueta] of amenidades) if (re.test(desc)) res.destacadas.push(etiqueta);
+        // Amoblado desde el texto, solo si la tabla de specs no lo definió (conservador:
+        // "sin amoblar / no amoblado / desamoblado" → No; mención de "amoblado" → Sí).
+        if (res.amoblado == null) {
+          if (/sin amoblar|no amoblad[oa]|desamoblad[oa]/.test(desc)) res.amoblado = false;
+          else if (/amoblad[oa]/.test(desc)) res.amoblado = true;
+        }
       }
 
       // Barrio desde el breadcrumb de la ficha (fuente oficial de Portal Inmobiliario).
@@ -605,9 +617,11 @@ async function main() {
       if (detalle.gastos_comunes != null) n.gastos_comunes = detalle.gastos_comunes;
       if (detalle.jardin != null) n.jardin = detalle.jardin;
       if (detalle.duplex != null) n.duplex = detalle.duplex;
+      if (detalle.amoblado != null) n.amoblado = detalle.amoblado;
       // etiquetas de jardín/dúplex (por si el título no las traía)
       if (n.jardin && !n.caracteristicas.includes("Jardín")) n.caracteristicas.push("Jardín");
       if (n.duplex && !n.caracteristicas.includes("Dúplex")) n.caracteristicas.push("Dúplex");
+      if (n.amoblado === true && !n.caracteristicas.includes("Amoblado")) n.caracteristicas.push("Amoblado");
       // amenidades detectadas en la descripción (sin duplicar las que ya trae)
       if (detalle.destacadas && detalle.destacadas.length) {
         for (const d of detalle.destacadas) if (!n.caracteristicas.includes(d)) n.caracteristicas.push(d);
