@@ -73,13 +73,13 @@ const VENTA = {
 // ── Parámetros SOLO de arriendo ────────────────────────────────────────────
 const ARRIENDO = {
   OPERACION: "arriendo",
-  // Arriendo: esta corrida actualiza Las Condes y Lo Barnechea (Vitacura ya está fresco
-  // de hoy; se fusiona aparte). Para volver a barrer todo, agrega Vitacura aquí.
+  // Arriendo: barrido completo de las tres comunas del sector oriente.
   COMUNAS: [
+    { nombre: "Vitacura",     slug: "vitacura-metropolitana" },
     { nombre: "Las Condes",   slug: "las-condes-metropolitana" },
     { nombre: "Lo Barnechea", slug: "lo-barnechea-metropolitana" },
   ],
-  COMUNAS_VALIDAS: ["Las Condes", "Lo Barnechea"],
+  COMUNAS_VALIDAS: ["Vitacura", "Las Condes", "Lo Barnechea"],
   // Mínimos más flexibles: captura más arriendos (2+ dorm, 1+ baño, sin exigir estacionamiento).
   MIN_DORMITORIOS: 2,
   MIN_BANOS: 1,
