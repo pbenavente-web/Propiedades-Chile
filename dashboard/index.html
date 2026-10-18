@@ -312,8 +312,16 @@
         <label><input type="checkbox" id="chk-jardin" /><span>🌳 Jardín</span></label>
         <label><input type="checkbox" id="chk-duplex" /><span>🏠 Dúplex</span></label>
         <label><input type="checkbox" id="chk-bodega" /><span>📦 Bodega</span></label>
-        <label><input type="checkbox" id="chk-amoblado" /><span>🛋️ Amoblado</span></label>
       </div>
+    </div>
+
+    <div class="fgroup">
+      <label class="title">Amoblado</label>
+      <select id="sel-amoblado">
+        <option value="">Cualquiera</option>
+        <option value="si">🛋️ Amoblada</option>
+        <option value="no">Sin amoblar</option>
+      </select>
     </div>
 
     <div class="fgroup">
@@ -654,7 +662,7 @@ function readFilters() {
     jardin: el("chk-jardin").checked,
     duplex: el("chk-duplex").checked,
     bodega: el("chk-bodega").checked,
-    amoblado: el("chk-amoblado").checked,
+    amoblado: el("sel-amoblado").value,
     favoritos: el("chk-favoritos").checked,
     verRechazados: el("chk-ver-rechazados").checked,
     orden: el("orden").value,
@@ -697,7 +705,8 @@ function apply() {
     if (f.jardin && effCarac(p, "jardin") !== true) return false;
     if (f.duplex && effCarac(p, "duplex") !== true) return false;
     if (f.bodega && effCarac(p, "bodega") !== true) return false;
-    if (f.amoblado && effCarac(p, "amoblado") !== true) return false;
+    if (f.amoblado === "si" && effCarac(p, "amoblado") !== true) return false;
+    if (f.amoblado === "no" && effCarac(p, "amoblado") !== false) return false;
     if (f.favoritos && !isFav(p.id)) return false;
     // rechazados: ocultos por defecto; solo se ven si "Mostrar rechazados" está activo
     if (isRej(p.id) && !f.verRechazados) return false;
@@ -1065,7 +1074,7 @@ function wireControls() {
    "stot-min","stot-max","sutil-min","sutil-max","ufm2-min","ufm2-max",
    "gc-min","gc-max","piso-min","piso-max"].forEach((id) =>
     el(id).addEventListener("input", apply));
-  ["orientacion","orden","barrio"].forEach((id) => el(id).addEventListener("change", apply));
+  ["orientacion","orden","barrio","sel-amoblado"].forEach((id) => el(id).addEventListener("change", apply));
   // Valor UF editable: al cambiarlo se recalcula la conversión mostrada.
   el("valor-uf").addEventListener("input", () => {
     const v = Number(el("valor-uf").value);
@@ -1076,7 +1085,7 @@ function wireControls() {
     VALOR_UF = UF_HOY; el("valor-uf").value = UF_HOY;
     saveValorUF(); updateUfHint(); renderSummary(); renderTable();
   });
-  ["chk-jardin","chk-duplex","chk-bodega","chk-amoblado","chk-favoritos","chk-ver-rechazados"].forEach((id) => el(id).addEventListener("change", apply));
+  ["chk-jardin","chk-duplex","chk-bodega","chk-favoritos","chk-ver-rechazados"].forEach((id) => el(id).addEventListener("change", apply));
   el("reset").addEventListener("click", () => {
     el("buscar").value = "";
     document.querySelectorAll("#f-comunas input").forEach((i) => (i.checked = true));
@@ -1086,8 +1095,9 @@ function wireControls() {
     if (MODO === "Arriendo") { el("min-dorm").value = 2; el("min-banos").value = 1; el("min-estac").value = 0; }
     else { el("min-dorm").value = 3; el("min-banos").value = 2; el("min-estac").value = 1; }
     el("orientacion").value = "";
+    el("sel-amoblado").value = "";
     buildBarrioFilter(); el("barrio").value = "";
-    ["chk-jardin","chk-duplex","chk-bodega","chk-amoblado","chk-favoritos","chk-ver-rechazados"].forEach((id) => (el(id).checked = false));
+    ["chk-jardin","chk-duplex","chk-bodega","chk-favoritos","chk-ver-rechazados"].forEach((id) => (el(id).checked = false));
     el("orden").value = "precio-asc";
     apply();
   });
